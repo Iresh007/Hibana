@@ -1,0 +1,173 @@
+package com.opennovel.reader.ui.screens
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Pause
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.SkipNext
+import androidx.compose.material.icons.filled.SkipPrevious
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opennovel.reader.ui.ReaderViewModel
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun ReaderScreen(
+    chapterId: Long,
+    factory: ViewModelProvider.Factory,
+    onBack: () -> Unit,
+) {
+    val vm: ReaderViewModel = viewModel(factory = factory)
+    val content by vm.content.collectAsStateWithLifecycle()
+    val loading by vm.loading.collectAsStateWithLifecycle()
+    val error by vm.error.collectAsStateWithLifecycle()
+    val ttsState by vm.ttsState.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
+
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(chapterId) { vm.load(chapterId) }
+
+    // Auto-scroll to the paragraph TTS is currently speaking.
+    LaunchedEffect(ttsState.index, ttsState.speaking) {
+        if (ttsState.speaking) listState.animateScrollToItem(ttsState.index)
+    }
+
+    // Persist scroll progress as the user reads.
+    LaunchedEffect(listState.firstVisibleItemIndex) {
+        val total = content?.paragraphs?.size ?: return@LaunchedEffect
+        if (total > 0) vm.saveProgress(listState.firstVisibleItemIndex.toFloat() / total)
+    }
+
+    val fontFamily = when (settings.fontFamily) {
+        "serif" -> FontFamily.Serif
+        "monospace" -> FontFamily.Monospace
+        else -> FontFamily.SansSerif
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Reader") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = { vm.downloadCurrent() }) {
+                        Icon(Icons.Filled.Download, contentDescription = "Download for offline")
+                    }
+                },
+            )
+        },
+        bottomBar = {
+            TtsBar(
+                speaking = ttsState.speaking,
+                paused = ttsState.paused,
+                onPlay = {
+                    if (ttsState.paused) vm.resumeTts()
+                    else vm.startTts(settings.ttsSpeed, settings.ttsPitch, settings.ttsVoice)
+                },
+                onPause = vm::pauseTts,
+                onStop = vm::stopTts,
+                onNext = { vm.tts.skipNext() },
+                onPrevious = { vm.tts.skipPrevious() },
+            )
+        },
+    ) { padding ->
+        Box(Modifier.fillMaxSize().padding(padding)) {
+            when {
+                loading -> Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
+                error != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    Text(error!!, color = MaterialTheme.colorScheme.error)
+                }
+                else -> LazyColumn(
+                    state = listState,
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+                    verticalArrangement = Arrangement.spacedBy((16 * settings.lineSpacing).dp),
+                ) {
+                    itemsIndexed(content?.paragraphs.orEmpty()) { index, para ->
+                        val highlighted = ttsState.speaking && index == ttsState.index
+                        Text(
+                            text = para,
+                            fontFamily = fontFamily,
+                            fontSize = (18 * settings.fontScale).sp,
+                            lineHeight = (18 * settings.fontScale * settings.lineSpacing).sp,
+                            textAlign = TextAlign.Start,
+                            color = if (highlighted)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurface,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun TtsBar(
+    speaking: Boolean,
+    paused: Boolean,
+    onPlay: () -> Unit,
+    onPause: () -> Unit,
+    onStop: () -> Unit,
+    onNext: () -> Unit,
+    onPrevious: () -> Unit,
+) {
+    Surface(tonalElevation = 3.dp) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onPrevious) {
+                Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous paragraph")
+            }
+            IconButton(onClick = if (speaking) onPause else onPlay) {
+                Icon(
+                    if (speaking) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                    contentDescription = if (speaking) "Pause" else "Read aloud",
+                )
+            }
+            IconButton(onClick = onStop) {
+                Icon(Icons.Filled.Stop, contentDescription = "Stop")
+            }
+            IconButton(onClick = onNext) {
+                Icon(Icons.Filled.SkipNext, contentDescription = "Next paragraph")
+            }
+        }
+    }
+}

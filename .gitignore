@@ -1,0 +1,17 @@
+*.iml
+.gradle/
+/local.properties
+/.idea/
+.DS_Store
+/build/
+/captures/
+.externalNativeBuild/
+.cxx/
+/app/build/
+*.apk
+*.keystore
+
+# Large third-party reference sources (kept locally for adapter work, not committed)
+/mihon-*.zip
+/IReader-*.zip
+/Manatan-*.zip
