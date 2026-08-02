@@ -15,3 +15,7 @@
 /mihon-*.zip
 /IReader-*.zip
 /Manatan-*.zip
+
+# Stray nested clone accidentally committed as an embedded git repo (gitlink).
+# Ignored so it is never re-added as a submodule.
+/Mihon_like/
