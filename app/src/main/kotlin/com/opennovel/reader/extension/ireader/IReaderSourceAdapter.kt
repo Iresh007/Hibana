@@ -67,7 +67,7 @@ class IReaderSourceAdapter(
         val fn = suspendFn("getMangaDetails") ?: return SNovel(url = url, title = url)
         val manga = newMangaInfo(key = url, title = "")
         val result = fn.callSuspend(delegate, manga, emptyList<Any?>())
-        return result.toSNovel()
+        return result?.toSNovel() ?: SNovel(url = url, title = url)
     }
 
     override suspend fun getChapterList(novelUrl: String): List<SChapter> {
