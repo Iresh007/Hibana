@@ -1,5 +1,7 @@
 # Hibana 話
 
+![Project Screenshot](Logo_1.png)
+
 **Manga • Anime • Novels — a story told by lamplight.**
 
 Hibana is a free, Mihon-style **web-novel / light-novel reader** for Android,
