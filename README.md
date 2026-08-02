@@ -1,4 +1,7 @@
-# Hibana
+![Project Screenshot](Logo_1.png)
+
+
+# Hibana   
 
 **Manga • Novels — stories that stay with you.**
 
