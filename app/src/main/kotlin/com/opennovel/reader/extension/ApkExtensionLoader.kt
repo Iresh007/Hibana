@@ -92,10 +92,12 @@ class ApkExtensionLoader(
                     .getDeclaredConstructor()
                     .newInstance()
                 // A single Source, or a SourceFactory that yields many.
-                when {
-                    ReflectiveSource.isSourceFactory(instance) ->
-                        ReflectiveSource.createFromFactory(instance).map { MihonSourceAdapter(it, ecosystem) }
-                    else -> listOf(MihonSourceAdapter(instance, ecosystem))
+                when (instance) {
+                    is eu.kanade.tachiyomi.source.SourceFactory ->
+                        instance.createSources().map { MihonSourceAdapter(it, ecosystem) }
+                    is eu.kanade.tachiyomi.source.Source ->
+                        listOf(MihonSourceAdapter(instance, ecosystem))
+                    else -> emptyList()
                 }
             }.getOrElse { emptyList() }
         }

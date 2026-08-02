@@ -64,6 +64,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.protobuf)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlin.reflect)
+    implementation(libs.androidx.preference)
     implementation(libs.coil.compose)
 
     debugImplementation(libs.androidx.ui.tooling)

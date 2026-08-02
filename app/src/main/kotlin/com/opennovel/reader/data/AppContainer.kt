@@ -66,6 +66,11 @@ class AppContainer(context: Context) {
     val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager)
 
     init {
+        // Provide the host singletons that Tachiyomi/Manatan extensions resolve via
+        // Injekt (NetworkHelper + app Context) before any extension is loaded.
+        uy.kohesive.injekt.Injekt.addSingleton(eu.kanade.tachiyomi.network.NetworkHelper(context.applicationContext))
+        uy.kohesive.injekt.Injekt.addSingleton(context.applicationContext)
+
         // Register built-in sources so the app has content on first launch.
         sourceManager.register(GutenbergSource(httpClient))
     }

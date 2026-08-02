@@ -14,8 +14,10 @@ jsoup = "1.18.1"
 serialization = "1.7.3"
 coroutines = "1.9.0"
 coil = "2.7.0"
+preference = "1.2.1"
 
 [libraries]
+androidx-preference = { group = "androidx.preference", name = "preference-ktx", version.ref = "preference" }
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
 androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
 androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "lifecycle" }
