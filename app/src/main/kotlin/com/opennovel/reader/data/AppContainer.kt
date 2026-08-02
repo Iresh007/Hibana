@@ -63,8 +63,13 @@ class AppContainer(context: Context) {
         // LNReaderLoader wired once a JsRuntime (QuickJS/Rhino) is provided.
     )
 
+    val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager)
+
     init {
         // Register built-in sources so the app has content on first launch.
         sourceManager.register(GutenbergSource(httpClient))
     }
+
+    /** Scan installed Mihon/Manatan/IReader extensions and register their sources. */
+    suspend fun loadInstalledExtensions() = extensionManager.loadInstalled()
 }

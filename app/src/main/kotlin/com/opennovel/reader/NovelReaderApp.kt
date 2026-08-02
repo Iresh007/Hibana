@@ -5,6 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.os.Build
 import com.opennovel.reader.data.AppContainer
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 
 /**
  * Application entry point. Holds the manual dependency-injection container so
@@ -20,6 +24,10 @@ class NovelReaderApp : Application() {
         super.onCreate()
         container = AppContainer(this)
         createNotificationChannels()
+        // Discover + register installed Mihon/Manatan/IReader extensions off the main thread.
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { container.loadInstalledExtensions() }
+        }
     }
 
     private fun createNotificationChannels() {

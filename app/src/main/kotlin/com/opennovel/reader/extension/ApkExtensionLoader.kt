@@ -3,6 +3,7 @@ package com.opennovel.reader.extension
 import android.content.Context
 import android.content.pm.PackageManager
 import com.opennovel.reader.source.Source
+import dalvik.system.PathClassLoader
 
 /**
  * Adapter for the APK-based ecosystems: **Mihon/Tachiyomi**, **IReader**, and
@@ -70,12 +71,43 @@ class ApkExtensionLoader(
     }
 
     override suspend fun load(info: ExtensionInfo): List<Source> {
-        // 1. DexClassLoader over info.artifact (the APK sourceDir)
-        // 2. read classKey meta-data -> fully-qualified source/factory class name
-        // 3. instantiate, wrap each native source in the matching adapter
-        // Returns empty until the per-ecosystem adapters are implemented.
-        return emptyList()
+        val pm = context.packageManager
+        val flags = PackageManager.GET_META_DATA
+        val appInfo = pm.getApplicationInfoCompat(info.pkgId, flags)
+        val meta = appInfo.metaData ?: return emptyList()
+
+        // Class list is semicolon-separated; a leading '.' is relative to the package.
+        val classNames = meta.getString(classKey).orEmpty()
+            .split(";")
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .map { if (it.startsWith(".")) info.pkgId + it else it }
+        if (classNames.isEmpty()) return emptyList()
+
+        val loader = PathClassLoader(appInfo.sourceDir, appInfo.nativeLibraryDir, javaClass.classLoader)
+
+        return classNames.flatMap { className ->
+            runCatching {
+                val instance = Class.forName(className, false, loader)
+                    .getDeclaredConstructor()
+                    .newInstance()
+                // A single Source, or a SourceFactory that yields many.
+                when {
+                    ReflectiveSource.isSourceFactory(instance) ->
+                        ReflectiveSource.createFromFactory(instance).map { MihonSourceAdapter(it, ecosystem) }
+                    else -> listOf(MihonSourceAdapter(instance, ecosystem))
+                }
+            }.getOrElse { emptyList() }
+        }
     }
+
+    @Suppress("DEPRECATION")
+    private fun PackageManager.getApplicationInfoCompat(pkg: String, flags: Int) =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            getApplicationInfo(pkg, PackageManager.ApplicationInfoFlags.of(flags.toLong()))
+        } else {
+            getApplicationInfo(pkg, flags)
+        }
 
     @Suppress("DEPRECATION")
     private fun PackageManager.getInstalledPackagesCompat(flags: Int) =
