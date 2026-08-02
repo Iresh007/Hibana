@@ -67,6 +67,49 @@ interface ChapterDao {
 }
 
 @Dao
+interface CategoryDao {
+
+    @Query("SELECT * FROM categories ORDER BY `order` ASC, name COLLATE NOCASE ASC")
+    fun observeCategories(): Flow<List<CategoryEntity>>
+
+    @Query("SELECT COUNT(*) FROM categories")
+    suspend fun count(): Int
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insert(category: CategoryEntity): Long
+
+    @Update
+    suspend fun update(category: CategoryEntity)
+
+    @Query("UPDATE categories SET name = :name WHERE id = :id")
+    suspend fun rename(id: Long, name: String)
+
+    @Query("DELETE FROM categories WHERE id = :id")
+    suspend fun delete(id: Long)
+
+    // --- assignment ---
+
+    @Query("SELECT categoryId FROM novel_categories WHERE novelId = :novelId")
+    suspend fun categoryIdsForNovel(novelId: Long): List<Long>
+
+    @Query("SELECT categoryId FROM novel_categories WHERE novelId = :novelId")
+    fun observeCategoryIdsForNovel(novelId: Long): Flow<List<Long>>
+
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun assign(ref: NovelCategoryCrossRef)
+
+    @Query("DELETE FROM novel_categories WHERE novelId = :novelId AND categoryId = :categoryId")
+    suspend fun unassign(novelId: Long, categoryId: Long)
+
+    @Query("DELETE FROM novel_categories WHERE novelId = :novelId")
+    suspend fun clearAssignments(novelId: Long)
+
+    /** All (novelId, categoryId) pairs, so the library can be grouped in one pass. */
+    @Query("SELECT * FROM novel_categories")
+    fun observeAllAssignments(): Flow<List<NovelCategoryCrossRef>>
+}
+
+@Dao
 interface HistoryDao {
 
     @Query(

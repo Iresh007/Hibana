@@ -6,14 +6,21 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 
 @Database(
-    entities = [NovelEntity::class, ChapterEntity::class, HistoryEntity::class],
-    version = 2,
+    entities = [
+        NovelEntity::class,
+        ChapterEntity::class,
+        HistoryEntity::class,
+        CategoryEntity::class,
+        NovelCategoryCrossRef::class,
+    ],
+    version = 3,
     exportSchema = false,
 )
 abstract class NovelReaderDatabase : RoomDatabase() {
     abstract fun novelDao(): NovelDao
     abstract fun chapterDao(): ChapterDao
     abstract fun historyDao(): HistoryDao
+    abstract fun categoryDao(): CategoryDao
 
     companion object {
         @Volatile

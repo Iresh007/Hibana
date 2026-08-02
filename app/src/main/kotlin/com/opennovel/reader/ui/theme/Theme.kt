@@ -18,53 +18,55 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.opennovel.reader.data.ThemeMode
 
-// Yomiku brand palette — violet → blue on deep navy, from the logo.
-private val YomikuVioletSoft = Color(0xFFA78BFA)
-private val YomikuBlue = Color(0xFF4EA8FF)
-private val YomikuLavender = Color(0xFFC4B5FD)
-private val YomikuNavy = Color(0xFF050913)
+// Hibana brand palette — lamplight amber/gold on deep navy, from the lantern logo.
+// 灯 lamplight warmth + 話 story: a story told by lamplight.
+private val HibanaAmber = Color(0xFFF2A93B)   // lantern glow — primary
+private val HibanaGoldSoft = Color(0xFFF5C77E) // soft candlelight
+private val HibanaEmber = Color(0xFFE0552F)    // maple-leaf ember accent — tertiary
+private val HibanaCream = Color(0xFFF3ECD9)    // warm paper cream — reading text
+private val HibanaNavy = Color(0xFF0A0E18)     // deep night navy
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF7C3AED),
+    primary = Color(0xFFB4741A),
     onPrimary = Color.White,
-    secondary = Color(0xFF2563EB),
-    background = Color(0xFFFAFAFF),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF17141F),
-    surfaceVariant = Color(0xFFECEAF5),
+    secondary = Color(0xFFC2571F),
+    background = Color(0xFFFDF9F1),
+    surface = Color(0xFFFFFDF8),
+    onSurface = Color(0xFF211C12),
+    surfaceVariant = Color(0xFFF1E7D4),
 )
 
-/** Primary Yomiku experience: violet/blue accents on deep navy. */
+/** Primary Hibana experience: warm amber/gold accents on deep navy. */
 private val DarkColors = darkColorScheme(
-    primary = YomikuVioletSoft,
-    onPrimary = Color(0xFF1A1030),
-    secondary = YomikuBlue,
-    onSecondary = Color(0xFF06121F),
-    tertiary = YomikuLavender,
-    background = YomikuNavy,
-    surface = Color(0xFF12101F),
-    onSurface = Color(0xFFE7E4F5),
-    surfaceVariant = Color(0xFF1E1B2E),
-    onSurfaceVariant = YomikuLavender,
-    primaryContainer = Color(0xFF2A2440),
-    onPrimaryContainer = Color(0xFFEDE9FF),
+    primary = HibanaAmber,
+    onPrimary = Color(0xFF2A1A05),
+    secondary = HibanaGoldSoft,
+    onSecondary = Color(0xFF2A1E08),
+    tertiary = HibanaEmber,
+    background = HibanaNavy,
+    surface = Color(0xFF121623),
+    onSurface = HibanaCream,
+    surfaceVariant = Color(0xFF1E2333),
+    onSurfaceVariant = HibanaGoldSoft,
+    primaryContainer = Color(0xFF3A2C12),
+    onPrimaryContainer = Color(0xFFFBEBCF),
 )
 
 /** Near-black scheme for OLED / distraction-free night reading. */
 private val BlackColors = darkColorScheme(
-    primary = YomikuVioletSoft,
-    secondary = YomikuBlue,
+    primary = HibanaAmber,
+    secondary = HibanaGoldSoft,
     background = Color(0xFF000000),
     surface = Color(0xFF000000),
-    onSurface = Color(0xFFDAD6EA),
-    surfaceVariant = Color(0xFF141018),
-    onSurfaceVariant = YomikuLavender,
+    onSurface = Color(0xFFEADFC7),
+    surfaceVariant = Color(0xFF14110B),
+    onSurfaceVariant = HibanaGoldSoft,
 )
 
 @Composable
 fun OpenNovelTheme(
     themeMode: ThemeMode,
-    // Off by default so the Yomiku brand palette always shows, rather than being
+    // Off by default so the Hibana brand palette always shows, rather than being
     // replaced by Material You wallpaper colors on Android 12+.
     dynamicColor: Boolean = false,
     content: @Composable () -> Unit,

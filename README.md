@@ -1,9 +1,9 @@
-# Yomiku
+# Hibana 話
 
-**Manga • Anime • Novels — stories that stay with you.**
+**Manga • Anime • Novels — a story told by lamplight.**
 
-Yomiku is a free, Mihon-style **web-novel / light-novel reader** for Android,
-written in Kotlin + Jetpack Compose, with a violet-to-blue-on-deep-navy theme.
+Hibana is a free, Mihon-style **web-novel / light-novel reader** for Android,
+written in Kotlin + Jetpack Compose, with a warm amber-on-deep-navy "lamplight" theme (灯 lamplight + 話 story).
 First milestone targets Android; a Windows build is a later phase (see *Roadmap*).
 
 Core features in this scaffold:

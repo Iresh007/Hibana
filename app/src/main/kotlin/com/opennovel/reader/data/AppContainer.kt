@@ -33,6 +33,7 @@ class AppContainer(context: Context) {
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
         historyDao = database.historyDao(),
+        categoryDao = database.categoryDao(),
         sourceManager = sourceManager,
     )
 

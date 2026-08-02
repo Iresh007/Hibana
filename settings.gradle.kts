@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "OpenNovelReader"
+rootProject.name = "Hibana"
 include(":app")

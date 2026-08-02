@@ -1,10 +1,13 @@
 package com.opennovel.reader.data
 
+import com.opennovel.reader.data.db.CategoryDao
+import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.ChapterDao
 import com.opennovel.reader.data.db.ChapterEntity
 import com.opennovel.reader.data.db.HistoryDao
 import com.opennovel.reader.data.db.HistoryEntity
 import com.opennovel.reader.data.db.HistoryWithNovel
+import com.opennovel.reader.data.db.NovelCategoryCrossRef
 import com.opennovel.reader.data.db.NovelDao
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.source.SourceManager
@@ -21,9 +24,43 @@ class LibraryRepository(
     private val novelDao: NovelDao,
     private val chapterDao: ChapterDao,
     private val historyDao: HistoryDao,
+    private val categoryDao: CategoryDao,
     private val sourceManager: SourceManager,
 ) {
     fun observeLibrary(): Flow<List<NovelEntity>> = novelDao.observeLibrary()
+
+    // --- categories ---
+
+    fun observeCategories(): Flow<List<CategoryEntity>> = categoryDao.observeCategories()
+
+    /** All novel→category assignments, so the library can be grouped in one pass. */
+    fun observeCategoryAssignments(): Flow<List<NovelCategoryCrossRef>> =
+        categoryDao.observeAllAssignments()
+
+    fun observeCategoryIdsForNovel(novelId: Long): Flow<List<Long>> =
+        categoryDao.observeCategoryIdsForNovel(novelId)
+
+    suspend fun categoryIdsForNovel(novelId: Long): List<Long> =
+        categoryDao.categoryIdsForNovel(novelId)
+
+    suspend fun createCategory(name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isEmpty()) return
+        categoryDao.insert(CategoryEntity(name = trimmed, order = categoryDao.count()))
+    }
+
+    suspend fun renameCategory(id: Long, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isNotEmpty()) categoryDao.rename(id, trimmed)
+    }
+
+    suspend fun deleteCategory(id: Long) = categoryDao.delete(id)
+
+    /** Replaces a novel's category membership with exactly [categoryIds]. */
+    suspend fun setNovelCategories(novelId: Long, categoryIds: Set<Long>) {
+        categoryDao.clearAssignments(novelId)
+        categoryIds.forEach { categoryDao.assign(NovelCategoryCrossRef(novelId, it)) }
+    }
 
     /** Recently read novels (one row per novel, newest first). */
     fun observeHistory(): Flow<List<HistoryWithNovel>> = historyDao.observeHistory()

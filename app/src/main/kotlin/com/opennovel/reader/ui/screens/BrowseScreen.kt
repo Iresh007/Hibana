@@ -1,5 +1,6 @@
 package com.opennovel.reader.ui.screens
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,7 +48,10 @@ import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun BrowseScreen(factory: ViewModelProvider.Factory) {
+fun BrowseScreen(
+    factory: ViewModelProvider.Factory,
+    onOpenNovel: (Long) -> Unit = {},
+) {
     val vm: BrowseViewModel = viewModel(factory = factory)
     val sources by vm.sources.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
@@ -96,6 +100,9 @@ fun BrowseScreen(factory: ViewModelProvider.Factory) {
                     ResultRow(
                         novel = novel,
                         added = added[novel.url] == true,
+                        onOpen = {
+                            scope.launch { vm.cacheForDetails(novel)?.let(onOpenNovel) }
+                        },
                         onAdd = {
                             scope.launch {
                                 vm.addToLibrary(novel)
@@ -110,9 +117,15 @@ fun BrowseScreen(factory: ViewModelProvider.Factory) {
 }
 
 @Composable
-private fun ResultRow(novel: SNovel, added: Boolean, onAdd: () -> Unit) {
+private fun ResultRow(novel: SNovel, added: Boolean, onOpen: () -> Unit, onAdd: () -> Unit) {
     Surface(tonalElevation = 1.dp, shape = RoundedCornerShape(12.dp)) {
-        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clickable(onClick = onOpen)
+                .padding(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Surface(
                 shape = RoundedCornerShape(8.dp),
                 modifier = Modifier.width(52.dp).aspectRatioCover().clip(RoundedCornerShape(8.dp)),

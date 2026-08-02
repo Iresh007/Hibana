@@ -24,6 +24,7 @@ import androidx.navigation.compose.rememberNavController
 import com.opennovel.reader.ui.screens.BrowseScreen
 import com.opennovel.reader.ui.screens.HistoryScreen
 import com.opennovel.reader.ui.screens.LibraryScreen
+import com.opennovel.reader.ui.screens.NovelDetailScreen
 import com.opennovel.reader.ui.screens.ReaderScreen
 import com.opennovel.reader.ui.screens.SettingsScreen
 
@@ -84,7 +85,7 @@ fun RootNav(factory: ViewModelProvider.Factory) {
             composable(Dest.Library.route) {
                 LibraryScreen(
                     factory = factory,
-                    onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+                    onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
                 )
             }
             composable(Dest.History.route) {
@@ -94,7 +95,19 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                 )
             }
             composable(Dest.Browse.route) {
-                BrowseScreen(factory = factory)
+                BrowseScreen(
+                    factory = factory,
+                    onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
+                )
+            }
+            composable("novel/{novelId}") { entry ->
+                val id = entry.arguments?.getString("novelId")?.toLongOrNull() ?: return@composable
+                NovelDetailScreen(
+                    novelId = id,
+                    factory = factory,
+                    onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+                    onBack = { nav.popBackStack() },
+                )
             }
             composable(Dest.Settings.route) {
                 SettingsScreen(factory = factory)

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="yomiku_navy">#050913</color>
+    <color name="hibana_navy">#0A0E18</color>
 
     <!-- Base app/window theme. Compose supplies UI colors; this sets the window
-         background so cold starts show the Yomiku deep-navy, not a white flash. -->
-    <style name="Theme.Yomiku" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/yomiku_navy</item>
-        <item name="android:statusBarColor">@color/yomiku_navy</item>
-        <item name="android:navigationBarColor">@color/yomiku_navy</item>
+         background so cold starts show the Hibana deep-navy, not a white flash. -->
+    <style name="Theme.Hibana" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/hibana_navy</item>
+        <item name="android:statusBarColor">@color/hibana_navy</item>
+        <item name="android:navigationBarColor">@color/hibana_navy</item>
     </style>
 </resources>

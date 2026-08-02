@@ -90,6 +90,46 @@ data class HistoryEntity(
     val readAt: Long = 0L,
 )
 
+/**
+ * A user-defined library shelf. Novels are assigned to categories many-to-many
+ * via [NovelCategoryCrossRef]; a novel in no category shows under "Default".
+ */
+@Entity(
+    tableName = "categories",
+    indices = [Index(value = ["name"], unique = true)],
+)
+data class CategoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    /** Display order of the tab, ascending. */
+    val order: Int = 0,
+)
+
+/** Join table assigning a novel to a category (many-to-many). */
+@Entity(
+    tableName = "novel_categories",
+    primaryKeys = ["novelId", "categoryId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = NovelEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["novelId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = CategoryEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index("categoryId"), Index("novelId")],
+)
+data class NovelCategoryCrossRef(
+    val novelId: Long,
+    val categoryId: Long,
+)
+
 /** Denormalized history row joined with its novel + chapter, for display. */
 data class HistoryWithNovel(
     val novelId: Long,

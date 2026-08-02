@@ -8,6 +8,7 @@ import com.opennovel.reader.data.LibraryRepository
 import com.opennovel.reader.data.ReaderSettings
 import com.opennovel.reader.data.SettingsRepository
 import com.opennovel.reader.data.ThemeMode
+import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.ChapterEntity
 import com.opennovel.reader.data.db.HistoryWithNovel
 import com.opennovel.reader.data.db.NovelEntity
@@ -17,11 +18,14 @@ import com.opennovel.reader.source.model.ChapterText
 import com.opennovel.reader.source.model.SNovel
 import com.opennovel.reader.tts.TtsManager
 import com.opennovel.reader.tts.TtsState
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -35,6 +39,8 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
             HistoryViewModel(c.libraryRepository)
         modelClass.isAssignableFrom(BrowseViewModel::class.java) ->
             BrowseViewModel(c.sourceManager, c.libraryRepository)
+        modelClass.isAssignableFrom(NovelDetailViewModel::class.java) ->
+            NovelDetailViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(c.settingsRepository)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
@@ -49,6 +55,9 @@ enum class LibrarySort(val label: String) {
     RECENTLY_ADDED("Recently added"),
 }
 
+/** Sentinel category id for the "Default" tab (novels in no user category). */
+const val DEFAULT_CATEGORY_ID = 0L
+
 class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
 
     private val _query = MutableStateFlow("")
@@ -57,12 +66,29 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
     private val _sort = MutableStateFlow(LibrarySort.TITLE)
     val sort: StateFlow<LibrarySort> = _sort.asStateFlow()
 
-    /** Library filtered by the search query and ordered by the chosen sort. */
+    /** Selected category tab. [DEFAULT_CATEGORY_ID] = uncategorized "Default" shelf. */
+    private val _selectedCategory = MutableStateFlow(DEFAULT_CATEGORY_ID)
+    val selectedCategory: StateFlow<Long> = _selectedCategory.asStateFlow()
+
+    val categories: StateFlow<List<CategoryEntity>> =
+        repo.observeCategories()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val assignments = repo.observeCategoryAssignments()
+
+    /** Library filtered by search query + selected category, ordered by the chosen sort. */
     val library: StateFlow<List<NovelEntity>> =
-        combine(repo.observeLibrary(), _query, _sort) { novels, query, sort ->
+        combine(repo.observeLibrary(), assignments, _query, _sort, _selectedCategory) { novels, refs, query, sort, categoryId ->
+            val byCategory = if (categoryId == DEFAULT_CATEGORY_ID) {
+                val assignedNovelIds = refs.map { it.novelId }.toSet()
+                novels.filter { it.id !in assignedNovelIds }
+            } else {
+                val idsInCategory = refs.filter { it.categoryId == categoryId }.map { it.novelId }.toSet()
+                novels.filter { it.id in idsInCategory }
+            }
             val filtered =
-                if (query.isBlank()) novels
-                else novels.filter { it.title.contains(query.trim(), ignoreCase = true) }
+                if (query.isBlank()) byCategory
+                else byCategory.filter { it.title.contains(query.trim(), ignoreCase = true) }
             when (sort) {
                 LibrarySort.TITLE -> filtered.sortedBy { it.title.lowercase() }
                 LibrarySort.RECENTLY_ADDED -> filtered.sortedByDescending { it.dateAdded }
@@ -72,6 +98,27 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
     fun setQuery(value: String) { _query.value = value }
 
     fun setSort(value: LibrarySort) { _sort.value = value }
+
+    fun selectCategory(id: Long) { _selectedCategory.value = id }
+
+    // --- category management ---
+
+    fun createCategory(name: String) = viewModelScope.launch { repo.createCategory(name) }
+
+    fun renameCategory(id: Long, name: String) = viewModelScope.launch { repo.renameCategory(id, name) }
+
+    fun deleteCategory(id: Long) = viewModelScope.launch {
+        repo.deleteCategory(id)
+        if (_selectedCategory.value == id) _selectedCategory.value = DEFAULT_CATEGORY_ID
+    }
+
+    /** Current category ids for a novel, for pre-checking the assign dialog. */
+    fun categoryIdsForNovel(novelId: Long, onLoaded: (Set<Long>) -> Unit) {
+        viewModelScope.launch { onLoaded(repo.categoryIdsForNovel(novelId).toSet()) }
+    }
+
+    fun setNovelCategories(novelId: Long, categoryIds: Set<Long>) =
+        viewModelScope.launch { repo.setNovelCategories(novelId, categoryIds) }
 
     /** Resolve the chapter to open for a tapped novel, then invoke [onResolved]. */
     fun openNovel(novelId: Long, onResolved: (Long?) -> Unit) {
@@ -92,6 +139,57 @@ class HistoryViewModel(private val repo: LibraryRepository) : ViewModel() {
     fun remove(novelId: Long) = viewModelScope.launch { repo.removeHistory(novelId) }
 
     fun clearAll() = viewModelScope.launch { repo.clearHistory() }
+}
+
+@OptIn(ExperimentalCoroutinesApi::class)
+class NovelDetailViewModel(
+    private val repo: LibraryRepository,
+    private val downloader: Downloader,
+) : ViewModel() {
+
+    private val novelId = MutableStateFlow<Long?>(null)
+
+    val novel: StateFlow<NovelEntity?> =
+        novelId.flatMapLatest { id -> if (id == null) flowOf(null) else repo.observeNovel(id) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
+
+    val chapters: StateFlow<List<ChapterEntity>> =
+        novelId.flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repo.observeChapters(id) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    fun load(id: Long) {
+        if (novelId.value == id) return
+        novelId.value = id
+        refresh()
+    }
+
+    fun refresh() {
+        val id = novelId.value ?: return
+        _refreshing.value = true
+        viewModelScope.launch {
+            runCatching { repo.refreshChapters(id) }
+            _refreshing.value = false
+        }
+    }
+
+    fun toggleLibrary() {
+        val n = novel.value ?: return
+        viewModelScope.launch { repo.addToLibrary(n.id, !n.inLibrary) }
+    }
+
+    fun markRead(chapterId: Long, read: Boolean) =
+        viewModelScope.launch { repo.markRead(chapterId, read, if (read) 1f else 0f) }
+
+    fun download(chapterId: Long) = viewModelScope.launch { downloader.download(chapterId) }
+
+    /** Resolve the resume/first chapter for the "Continue" button. */
+    fun resume(onResolved: (Long?) -> Unit) {
+        val id = novelId.value ?: return
+        viewModelScope.launch { onResolved(repo.resumeChapterId(id)) }
+    }
 }
 
 class BrowseViewModel(
@@ -138,6 +236,13 @@ class BrowseViewModel(
         repo.addToLibrary(id, true)
         repo.refreshChapters(id)
         return id
+    }
+
+    /** Caches a browsed novel locally (without adding to library) so its detail
+     *  screen can be opened; returns the local id. */
+    suspend fun cacheForDetails(novel: SNovel): Long? {
+        val sourceId = activeSourceId ?: return null
+        return repo.cacheNovel(sourceId, novel)
     }
 }
 
