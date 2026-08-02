@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
@@ -21,17 +22,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.opennovel.reader.ui.screens.BrowseScreen
+import com.opennovel.reader.ui.screens.HistoryScreen
 import com.opennovel.reader.ui.screens.LibraryScreen
 import com.opennovel.reader.ui.screens.ReaderScreen
 import com.opennovel.reader.ui.screens.SettingsScreen
 
 private sealed class Dest(val route: String, val label: String) {
     data object Library : Dest("library", "Library")
+    data object History : Dest("history", "History")
     data object Browse : Dest("browse", "Browse")
     data object Settings : Dest("settings", "Settings")
 }
 
-private val bottomDests = listOf(Dest.Library, Dest.Browse, Dest.Settings)
+private val bottomDests = listOf(Dest.Library, Dest.History, Dest.Browse, Dest.Settings)
 
 @Composable
 fun RootNav(factory: ViewModelProvider.Factory) {
@@ -59,6 +62,7 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                                 Icon(
                                     when (dest) {
                                         Dest.Library -> Icons.AutoMirrored.Filled.MenuBook
+                                        Dest.History -> Icons.Filled.History
                                         Dest.Browse -> Icons.Filled.Explore
                                         Dest.Settings -> Icons.Filled.Settings
                                     },
@@ -79,6 +83,12 @@ fun RootNav(factory: ViewModelProvider.Factory) {
         ) {
             composable(Dest.Library.route) {
                 LibraryScreen(
+                    factory = factory,
+                    onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+                )
+            }
+            composable(Dest.History.route) {
+                HistoryScreen(
                     factory = factory,
                     onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
                 )

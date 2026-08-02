@@ -2,6 +2,9 @@ package com.opennovel.reader.data
 
 import com.opennovel.reader.data.db.ChapterDao
 import com.opennovel.reader.data.db.ChapterEntity
+import com.opennovel.reader.data.db.HistoryDao
+import com.opennovel.reader.data.db.HistoryEntity
+import com.opennovel.reader.data.db.HistoryWithNovel
 import com.opennovel.reader.data.db.NovelDao
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.source.SourceManager
@@ -17,9 +20,17 @@ import kotlinx.coroutines.flow.Flow
 class LibraryRepository(
     private val novelDao: NovelDao,
     private val chapterDao: ChapterDao,
+    private val historyDao: HistoryDao,
     private val sourceManager: SourceManager,
 ) {
     fun observeLibrary(): Flow<List<NovelEntity>> = novelDao.observeLibrary()
+
+    /** Recently read novels (one row per novel, newest first). */
+    fun observeHistory(): Flow<List<HistoryWithNovel>> = historyDao.observeHistory()
+
+    suspend fun removeHistory(novelId: Long) = historyDao.deleteForNovel(novelId)
+
+    suspend fun clearHistory() = historyDao.clear()
 
     fun observeNovel(id: Long): Flow<NovelEntity?> = novelDao.observeNovel(id)
 
@@ -90,5 +101,12 @@ class LibraryRepository(
     suspend fun saveProgress(novelId: Long, chapterId: Long, offset: Float) {
         chapterDao.setReadState(chapterId, read = offset >= 0.98f, offset = offset)
         novelDao.setLastReadChapter(novelId, chapterId)
+        historyDao.upsert(
+            HistoryEntity(
+                novelId = novelId,
+                chapterId = chapterId,
+                readAt = System.currentTimeMillis(),
+            ),
+        )
     }
 }

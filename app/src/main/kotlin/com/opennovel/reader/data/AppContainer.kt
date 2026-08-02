@@ -32,6 +32,7 @@ class AppContainer(context: Context) {
     val libraryRepository = LibraryRepository(
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
+        historyDao = database.historyDao(),
         sourceManager = sourceManager,
     )
 

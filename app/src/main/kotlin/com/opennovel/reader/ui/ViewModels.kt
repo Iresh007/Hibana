@@ -9,6 +9,7 @@ import com.opennovel.reader.data.ReaderSettings
 import com.opennovel.reader.data.SettingsRepository
 import com.opennovel.reader.data.ThemeMode
 import com.opennovel.reader.data.db.ChapterEntity
+import com.opennovel.reader.data.db.HistoryWithNovel
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.download.Downloader
 import com.opennovel.reader.source.SourceManager
@@ -20,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -29,6 +31,8 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
         modelClass.isAssignableFrom(LibraryViewModel::class.java) ->
             LibraryViewModel(c.libraryRepository)
+        modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
+            HistoryViewModel(c.libraryRepository)
         modelClass.isAssignableFrom(BrowseViewModel::class.java) ->
             BrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
@@ -39,14 +43,55 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
     } as T
 }
 
+/** How the library grid is ordered. */
+enum class LibrarySort(val label: String) {
+    TITLE("Title"),
+    RECENTLY_ADDED("Recently added"),
+}
+
 class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
+
+    private val _query = MutableStateFlow("")
+    val query: StateFlow<String> = _query.asStateFlow()
+
+    private val _sort = MutableStateFlow(LibrarySort.TITLE)
+    val sort: StateFlow<LibrarySort> = _sort.asStateFlow()
+
+    /** Library filtered by the search query and ordered by the chosen sort. */
     val library: StateFlow<List<NovelEntity>> =
-        repo.observeLibrary().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        combine(repo.observeLibrary(), _query, _sort) { novels, query, sort ->
+            val filtered =
+                if (query.isBlank()) novels
+                else novels.filter { it.title.contains(query.trim(), ignoreCase = true) }
+            when (sort) {
+                LibrarySort.TITLE -> filtered.sortedBy { it.title.lowercase() }
+                LibrarySort.RECENTLY_ADDED -> filtered.sortedByDescending { it.dateAdded }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun setQuery(value: String) { _query.value = value }
+
+    fun setSort(value: LibrarySort) { _sort.value = value }
 
     /** Resolve the chapter to open for a tapped novel, then invoke [onResolved]. */
     fun openNovel(novelId: Long, onResolved: (Long?) -> Unit) {
         viewModelScope.launch { onResolved(repo.resumeChapterId(novelId)) }
     }
+}
+
+class HistoryViewModel(private val repo: LibraryRepository) : ViewModel() {
+
+    val history: StateFlow<List<HistoryWithNovel>> =
+        repo.observeHistory().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Resolve the resume chapter for a history entry, then invoke [onResolved]. */
+    fun resume(novelId: Long, onResolved: (Long?) -> Unit) {
+        viewModelScope.launch { onResolved(repo.resumeChapterId(novelId)) }
+    }
+
+    fun remove(novelId: Long) = viewModelScope.launch { repo.removeHistory(novelId) }
+
+    fun clearAll() = viewModelScope.launch { repo.clearHistory() }
 }
 
 class BrowseViewModel(

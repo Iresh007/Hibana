@@ -12,14 +12,23 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -31,6 +40,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.opennovel.reader.data.db.NovelEntity
+import com.opennovel.reader.ui.LibrarySort
 import com.opennovel.reader.ui.LibraryViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -41,14 +51,29 @@ fun LibraryScreen(
 ) {
     val vm: LibraryViewModel = viewModel(factory = factory)
     val novels by vm.library.collectAsStateWithLifecycle()
+    val query by vm.query.collectAsStateWithLifecycle()
+    val sort by vm.sort.collectAsStateWithLifecycle()
 
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(title = { Text("Library") })
+        TopAppBar(
+            title = { Text(if (novels.isEmpty()) "Library" else "Library (${novels.size})") },
+            actions = { LibrarySortMenu(current = sort, onSelect = vm::setSort) },
+        )
 
-        if (novels.isEmpty()) {
-            EmptyLibrary()
-        } else {
-            LazyVerticalGrid(
+        OutlinedTextField(
+            value = query,
+            onValueChange = vm::setQuery,
+            singleLine = true,
+            placeholder = { Text("Search library") },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp),
+        )
+
+        when {
+            novels.isEmpty() && query.isNotBlank() -> NoResults(query)
+            novels.isEmpty() -> EmptyLibrary()
+            else -> LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 120.dp),
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -61,6 +86,36 @@ fun LibraryScreen(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LibrarySortMenu(current: LibrarySort, onSelect: (LibrarySort) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    IconButton(onClick = { expanded = true }) {
+        Icon(Icons.Filled.Sort, contentDescription = "Sort library")
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        LibrarySort.entries.forEach { option ->
+            DropdownMenuItem(
+                text = { Text(option.label) },
+                onClick = { onSelect(option); expanded = false },
+                trailingIcon = {
+                    if (option == current) Icon(Icons.Filled.Check, contentDescription = null)
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun NoResults(query: String) {
+    Box(Modifier.fillMaxSize(), Alignment.Center) {
+        Text(
+            "No novels match \"$query\"",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+        )
     }
 }
 

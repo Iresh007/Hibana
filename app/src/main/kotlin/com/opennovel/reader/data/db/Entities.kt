@@ -58,3 +58,44 @@ data class ChapterEntity(
     val downloadPath: String? = null,
     val sourceOrder: Int = 0,
 )
+
+/**
+ * One row per novel recording the most recently read chapter and when. Powers the
+ * History tab (recently read) and "continue reading". Kept to a single row per
+ * novel (unique [novelId]) so history shows each novel once at its latest point.
+ */
+@Entity(
+    tableName = "history",
+    foreignKeys = [
+        ForeignKey(
+            entity = NovelEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["novelId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+        ForeignKey(
+            entity = ChapterEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["chapterId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+    indices = [Index(value = ["novelId"], unique = true), Index("chapterId")],
+)
+data class HistoryEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val novelId: Long,
+    val chapterId: Long,
+    /** Epoch millis of the last read event. */
+    val readAt: Long = 0L,
+)
+
+/** Denormalized history row joined with its novel + chapter, for display. */
+data class HistoryWithNovel(
+    val novelId: Long,
+    val chapterId: Long,
+    val readAt: Long,
+    val title: String,
+    val coverUrl: String?,
+    val chapterName: String,
+)
