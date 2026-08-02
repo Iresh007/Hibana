@@ -43,6 +43,8 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
             NovelDetailViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(c.settingsRepository)
+        modelClass.isAssignableFrom(BackupViewModel::class.java) ->
+            BackupViewModel(c.backupManager)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
             ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.settingsRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
@@ -244,6 +246,41 @@ class BrowseViewModel(
         val sourceId = activeSourceId ?: return null
         return repo.cacheNovel(sourceId, novel)
     }
+}
+
+class BackupViewModel(private val backup: com.opennovel.reader.backup.BackupManager) : ViewModel() {
+    private val _status = MutableStateFlow<String?>(null)
+    val status: StateFlow<String?> = _status.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    fun exportTo(out: java.io.OutputStream) {
+        _busy.value = true
+        viewModelScope.launch {
+            _status.value = runCatching { backup.export(out) }
+                .fold({ "Backup created" }, { "Backup failed: ${it.message}" })
+            _busy.value = false
+        }
+    }
+
+    fun importFrom(input: java.io.InputStream, isManatan: Boolean) {
+        if (isManatan) {
+            _status.value = "Manatan backups aren't supported yet — use a Mihon/Tachiyomi .tachibk file."
+            return
+        }
+        _busy.value = true
+        viewModelScope.launch {
+            _status.value = runCatching { backup.import(input) }
+                .fold(
+                    { "Restored ${it.novels} novels, ${it.chapters} chapters, ${it.categories} categories" },
+                    { "Restore failed: ${it.message}" },
+                )
+            _busy.value = false
+        }
+    }
+
+    fun clearStatus() { _status.value = null }
 }
 
 class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {

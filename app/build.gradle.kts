@@ -61,6 +61,7 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.jsoup)
     implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.serialization.protobuf)
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlin.reflect)
     implementation(libs.coil.compose)

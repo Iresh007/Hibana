@@ -1,5 +1,9 @@
 package com.opennovel.reader.ui.screens
 
+import android.net.Uri
+import android.provider.OpenableColumns
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -7,8 +11,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -16,11 +23,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opennovel.reader.data.ThemeMode
+import com.opennovel.reader.ui.BackupViewModel
 import com.opennovel.reader.ui.SettingsViewModel
 
 @Composable
@@ -71,7 +80,68 @@ fun SettingsScreen(factory: ViewModelProvider.Factory) {
             LabeledSlider("Speed", s.ttsSpeed, 0.5f..2.0f) { vm.setTtsSpeed(it) }
             LabeledSlider("Pitch", s.ttsPitch, 0.5f..2.0f) { vm.setTtsPitch(it) }
         }
+
+        BackupSection(factory)
     }
+}
+
+@Composable
+private fun BackupSection(factory: ViewModelProvider.Factory) {
+    val vm: BackupViewModel = viewModel(factory = factory)
+    val context = LocalContext.current
+    val status by vm.status.collectAsStateWithLifecycle()
+    val busy by vm.busy.collectAsStateWithLifecycle()
+
+    val createBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/gzip"),
+    ) { uri: Uri? ->
+        uri?.let { context.contentResolver.openOutputStream(it)?.let(vm::exportTo) }
+    }
+    val restoreBackup = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        uri?.let {
+            val name = it.displayName(context)
+            context.contentResolver.openInputStream(it)?.let { stream ->
+                vm.importFrom(stream, isManatan = name.endsWith(".manatanbk", ignoreCase = true))
+            }
+        }
+    }
+
+    Section("Backup & restore") {
+        Text(
+            "Hibana backups use the Mihon/Tachiyomi .tachibk format, so they restore into Mihon and vice-versa.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Button(
+                onClick = { createBackup.launch("hibana_backup_${System.currentTimeMillis()}.tachibk") },
+                enabled = !busy,
+            ) { Text("Create backup") }
+            OutlinedButton(
+                onClick = { restoreBackup.launch(arrayOf("*/*")) },
+                enabled = !busy,
+            ) { Text("Restore backup") }
+        }
+        if (busy) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CircularProgressIndicator(modifier = Modifier.padding(end = 8.dp))
+                Text("Working…", style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        status?.let {
+            Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+private fun Uri.displayName(context: android.content.Context): String {
+    context.contentResolver.query(this, null, null, null, null)?.use { cursor ->
+        val idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+        if (idx >= 0 && cursor.moveToFirst()) return cursor.getString(idx) ?: ""
+    }
+    return lastPathSegment ?: ""
 }
 
 @Composable

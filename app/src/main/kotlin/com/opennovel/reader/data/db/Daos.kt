@@ -16,6 +16,9 @@ interface NovelDao {
     @Query("SELECT * FROM novels WHERE inLibrary = 1 ORDER BY title COLLATE NOCASE ASC")
     fun observeLibrary(): Flow<List<NovelEntity>>
 
+    @Query("SELECT * FROM novels WHERE inLibrary = 1")
+    suspend fun getAllInLibrary(): List<NovelEntity>
+
     @Query("SELECT * FROM novels WHERE id = :id")
     fun observeNovel(id: Long): Flow<NovelEntity?>
 
@@ -103,6 +106,12 @@ interface CategoryDao {
 
     @Query("DELETE FROM novel_categories WHERE novelId = :novelId")
     suspend fun clearAssignments(novelId: Long)
+
+    @Query("SELECT * FROM categories ORDER BY `order` ASC")
+    suspend fun getAll(): List<CategoryEntity>
+
+    @Query("SELECT * FROM novel_categories")
+    suspend fun allAssignments(): List<NovelCategoryCrossRef>
 
     /** All (novelId, categoryId) pairs, so the library can be grouped in one pass. */
     @Query("SELECT * FROM novel_categories")

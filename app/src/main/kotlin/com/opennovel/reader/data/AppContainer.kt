@@ -37,6 +37,13 @@ class AppContainer(context: Context) {
         sourceManager = sourceManager,
     )
 
+    val backupManager = com.opennovel.reader.backup.BackupManager(
+        novelDao = database.novelDao(),
+        chapterDao = database.chapterDao(),
+        categoryDao = database.categoryDao(),
+        sourceManager = sourceManager,
+    )
+
     val settingsRepository = SettingsRepository(context)
 
     val downloader = Downloader(
