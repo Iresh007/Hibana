@@ -1,8 +1,8 @@
-# Yomiku
+# Hibana
 
-**Manga • Anime • Novels — stories that stay with you.**
+**Manga • Novels — stories that stay with you.**
 
-Yomiku is a free, Mihon-style **web-novel / light-novel reader** for Android,
+Hibana is a free, Mihon-style **web-novel / light-novel reader** for Android,
 written in Kotlin + Jetpack Compose, with a violet-to-blue-on-deep-navy theme.
 First milestone targets Android; a Windows build is a later phase (see *Roadmap*).
 
