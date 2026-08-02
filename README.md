@@ -1,8 +1,10 @@
-# OpenNovel Reader (Android)
+# Yomiku
 
-A free, Mihon-style **web-novel / light-novel reader** for Android, written in
-Kotlin + Jetpack Compose. First milestone targets Android; a Windows build is a
-later phase (see *Roadmap*).
+**Manga • Anime • Novels — stories that stay with you.**
+
+Yomiku is a free, Mihon-style **web-novel / light-novel reader** for Android,
+written in Kotlin + Jetpack Compose, with a violet-to-blue-on-deep-navy theme.
+First milestone targets Android; a Windows build is a later phase (see *Roadmap*).
 
 Core features in this scaffold:
 

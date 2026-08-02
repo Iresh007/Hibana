@@ -18,39 +18,55 @@ import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
 import com.opennovel.reader.data.ThemeMode
 
+// Yomiku brand palette — violet → blue on deep navy, from the logo.
+private val YomikuVioletSoft = Color(0xFFA78BFA)
+private val YomikuBlue = Color(0xFF4EA8FF)
+private val YomikuLavender = Color(0xFFC4B5FD)
+private val YomikuNavy = Color(0xFF050913)
+
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF3B5BDB),
+    primary = Color(0xFF7C3AED),
     onPrimary = Color.White,
-    secondary = Color(0xFF5C7CFA),
-    background = Color(0xFFFAFAFB),
+    secondary = Color(0xFF2563EB),
+    background = Color(0xFFFAFAFF),
     surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF1A1B1E),
-    surfaceVariant = Color(0xFFEDEEF2),
+    onSurface = Color(0xFF17141F),
+    surfaceVariant = Color(0xFFECEAF5),
 )
 
+/** Primary Yomiku experience: violet/blue accents on deep navy. */
 private val DarkColors = darkColorScheme(
-    primary = Color(0xFF91A7FF),
-    onPrimary = Color(0xFF11151F),
-    secondary = Color(0xFF748FFC),
-    background = Color(0xFF121316),
-    surface = Color(0xFF1A1B1E),
-    onSurface = Color(0xFFE7E8EA),
-    surfaceVariant = Color(0xFF2A2C31),
+    primary = YomikuVioletSoft,
+    onPrimary = Color(0xFF1A1030),
+    secondary = YomikuBlue,
+    onSecondary = Color(0xFF06121F),
+    tertiary = YomikuLavender,
+    background = YomikuNavy,
+    surface = Color(0xFF12101F),
+    onSurface = Color(0xFFE7E4F5),
+    surfaceVariant = Color(0xFF1E1B2E),
+    onSurfaceVariant = YomikuLavender,
+    primaryContainer = Color(0xFF2A2440),
+    onPrimaryContainer = Color(0xFFEDE9FF),
 )
 
 /** Near-black scheme for OLED / distraction-free night reading. */
 private val BlackColors = darkColorScheme(
-    primary = Color(0xFF91A7FF),
+    primary = YomikuVioletSoft,
+    secondary = YomikuBlue,
     background = Color(0xFF000000),
     surface = Color(0xFF000000),
-    onSurface = Color(0xFFD5D6D8),
-    surfaceVariant = Color(0xFF161616),
+    onSurface = Color(0xFFDAD6EA),
+    surfaceVariant = Color(0xFF141018),
+    onSurfaceVariant = YomikuLavender,
 )
 
 @Composable
 fun OpenNovelTheme(
     themeMode: ThemeMode,
-    dynamicColor: Boolean = true,
+    // Off by default so the Yomiku brand palette always shows, rather than being
+    // replaced by Material You wallpaper colors on Android 12+.
+    dynamicColor: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val systemDark = isSystemInDarkTheme()

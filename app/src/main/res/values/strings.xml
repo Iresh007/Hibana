@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">OpenNovel Reader</string>
+    <string name="app_name">Yomiku</string>
+    <string name="app_tagline">Stories that stay with you</string>
+    <string name="app_subtitle">Manga • Anime • Novels</string>
 </resources>

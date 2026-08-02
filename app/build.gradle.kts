@@ -11,7 +11,9 @@ android {
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.opennovel.reader"
+        // User-facing app identity is Yomiku. The code namespace stays
+        // com.opennovel.reader to avoid a risky package move across the source tree.
+        applicationId = "com.yomiku.app"
         minSdk = 24
         targetSdk = 34
         versionCode = 1

@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.OpenNovelReader" parent="android:Theme.Material.Light.NoActionBar" />
+    <color name="yomiku_navy">#050913</color>
+
+    <!-- Base app/window theme. Compose supplies UI colors; this sets the window
+         background so cold starts show the Yomiku deep-navy, not a white flash. -->
+    <style name="Theme.Yomiku" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/yomiku_navy</item>
+        <item name="android:statusBarColor">@color/yomiku_navy</item>
+        <item name="android:navigationBarColor">@color/yomiku_navy</item>
+    </style>
 </resources>

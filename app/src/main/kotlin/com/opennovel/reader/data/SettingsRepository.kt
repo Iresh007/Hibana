@@ -18,7 +18,7 @@ private val Context.dataStore: DataStore<Preferences> by preferencesDataStore(na
 data class ReaderSettings(
     val fontScale: Float = 1.0f,
     val lineSpacing: Float = 1.4f,
-    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val themeMode: ThemeMode = ThemeMode.DARK,
     val fontFamily: String = "serif",
     val ttsSpeed: Float = 1.0f,
     val ttsPitch: Float = 1.0f,
@@ -34,7 +34,7 @@ class SettingsRepository(private val context: Context) {
         ReaderSettings(
             fontScale = p[FONT_SCALE] ?: 1.0f,
             lineSpacing = p[LINE_SPACING] ?: 1.4f,
-            themeMode = ThemeMode.valueOf(p[THEME_MODE] ?: ThemeMode.SYSTEM.name),
+            themeMode = ThemeMode.valueOf(p[THEME_MODE] ?: ThemeMode.DARK.name),
             fontFamily = p[FONT_FAMILY] ?: "serif",
             ttsSpeed = p[TTS_SPEED] ?: 1.0f,
             ttsPitch = p[TTS_PITCH] ?: 1.0f,
