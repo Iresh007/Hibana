@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.opennovel.reader.backup
 
 import kotlinx.serialization.Serializable

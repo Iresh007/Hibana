@@ -246,7 +246,55 @@ class BrowseViewModel(
         val sourceId = activeSourceId ?: return null
         return repo.cacheNovel(sourceId, novel)
     }
+
+    // --- global search: one query fanned out across every installed source ---
+
+    private val _global = MutableStateFlow<List<SourceSearchResult>>(emptyList())
+    val global: StateFlow<List<SourceSearchResult>> = _global.asStateFlow()
+
+    private val _globalMode = MutableStateFlow(false)
+    val globalMode: StateFlow<Boolean> = _globalMode.asStateFlow()
+
+    fun setGlobalMode(on: Boolean) { _globalMode.value = on; if (!on) _global.value = emptyList() }
+
+    /** Search every catalogue source concurrently; each section updates as it returns. */
+    fun globalSearch(query: String) {
+        if (query.isBlank()) return
+        val sources = sourceManager.catalogueSources()
+        _global.value = sources.map { SourceSearchResult(it.id, it.name, loading = true) }
+        sources.forEach { source ->
+            viewModelScope.launch {
+                val outcome = runCatching { source.searchNovels(query, 1) }
+                _global.value = _global.value.map { row ->
+                    if (row.sourceId != source.id) row
+                    else outcome.fold(
+                        { row.copy(novels = it.novels, loading = false) },
+                        { row.copy(loading = false, error = it.message ?: "Failed") },
+                    )
+                }
+            }
+        }
+    }
+
+    /** Cache a global-search result under its own source (not the active one). */
+    suspend fun cacheForDetails(sourceId: Long, novel: SNovel): Long =
+        repo.cacheNovel(sourceId, novel)
+
+    /** Add an already-cached novel (by local id) to the library and pull chapters. */
+    suspend fun addExistingToLibrary(novelId: Long) {
+        repo.addToLibrary(novelId, true)
+        repo.refreshChapters(novelId)
+    }
 }
+
+/** One source's slice of a global search: its results plus loading/error state. */
+data class SourceSearchResult(
+    val sourceId: Long,
+    val sourceName: String,
+    val novels: List<SNovel> = emptyList(),
+    val loading: Boolean = false,
+    val error: String? = null,
+)
 
 class BackupViewModel(private val backup: com.opennovel.reader.backup.BackupManager) : ViewModel() {
     private val _status = MutableStateFlow<String?>(null)

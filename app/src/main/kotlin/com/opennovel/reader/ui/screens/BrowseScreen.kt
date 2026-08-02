@@ -56,6 +56,8 @@ fun BrowseScreen(
     val sources by vm.sources.collectAsStateWithLifecycle()
     val results by vm.results.collectAsStateWithLifecycle()
     val loading by vm.loading.collectAsStateWithLifecycle()
+    val global by vm.global.collectAsStateWithLifecycle()
+    val globalMode by vm.globalMode.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val added = remember { mutableStateMapOf<String, Boolean>() }
 
@@ -70,29 +72,73 @@ fun BrowseScreen(
             modifier = Modifier.padding(vertical = 12.dp),
         )
 
-        // Source selector
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            sources.forEach { src ->
-                FilterChip(
-                    selected = vm.activeSourceId == src.id,
-                    onClick = { vm.selectSource(src.id) },
-                    label = { Text(src.name) },
-                )
+            FilterChip(
+                selected = globalMode,
+                onClick = { vm.setGlobalMode(!globalMode) },
+                label = { Text("All sources") },
+            )
+            if (!globalMode) {
+                sources.forEach { src ->
+                    FilterChip(
+                        selected = vm.activeSourceId == src.id,
+                        onClick = { vm.selectSource(src.id) },
+                        label = { Text(src.name) },
+                    )
+                }
             }
         }
 
         OutlinedTextField(
             value = query,
             onValueChange = { query = it },
-            label = { Text("Search this source") },
+            label = { Text(if (globalMode) "Search all sources" else "Search this source") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
         )
-        LaunchedEffect(query) {
-            if (query.length >= 2) vm.search(query) else if (query.isEmpty()) vm.loadPopular()
+        LaunchedEffect(query, globalMode) {
+            when {
+                globalMode && query.length >= 2 -> vm.globalSearch(query)
+                !globalMode && query.length >= 2 -> vm.search(query)
+                !globalMode && query.isEmpty() -> vm.loadPopular()
+            }
         }
 
-        if (loading) {
+        val openNovel: (Long, SNovel) -> Unit = { sourceId, novel ->
+            scope.launch { onOpenNovel(vm.cacheForDetails(sourceId, novel)) }
+        }
+
+        if (globalMode) {
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                global.forEach { section ->
+                    item(key = "hdr-${section.sourceId}") {
+                        Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Text(section.sourceName, style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f))
+                            when {
+                                section.loading -> CircularProgressIndicator(Modifier.padding(end = 4.dp))
+                                section.error != null -> Text("error", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
+                                section.novels.isEmpty() -> Text("no results", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                            }
+                        }
+                    }
+                    items(section.novels, key = { "${section.sourceId}-${it.url}" }) { novel ->
+                        ResultRow(
+                            novel = novel,
+                            added = added["${section.sourceId}-${novel.url}"] == true,
+                            onOpen = { openNovel(section.sourceId, novel) },
+                            onAdd = {
+                                scope.launch {
+                                    vm.cacheForDetails(section.sourceId, novel).let { id ->
+                                        vm.addExistingToLibrary(id)
+                                    }
+                                    added["${section.sourceId}-${novel.url}"] = true
+                                }
+                            },
+                        )
+                    }
+                }
+            }
+        } else if (loading) {
             Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
         } else {
             LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -100,9 +146,7 @@ fun BrowseScreen(
                     ResultRow(
                         novel = novel,
                         added = added[novel.url] == true,
-                        onOpen = {
-                            scope.launch { vm.cacheForDetails(novel)?.let(onOpenNovel) }
-                        },
+                        onOpen = { scope.launch { vm.cacheForDetails(novel)?.let(onOpenNovel) } },
                         onAdd = {
                             scope.launch {
                                 vm.addToLibrary(novel)

@@ -1,3 +1,5 @@
+@file:OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+
 package com.opennovel.reader.backup
 
 import com.opennovel.reader.data.db.CategoryDao

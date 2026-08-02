@@ -17,9 +17,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Label
+import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -152,7 +152,7 @@ fun LibraryScreen(
 private fun LibrarySortMenu(current: LibrarySort, onSelect: (LibrarySort) -> Unit) {
     var expanded by remember { mutableStateOf(false) }
     IconButton(onClick = { expanded = true }) {
-        Icon(Icons.Filled.Sort, contentDescription = "Sort library")
+        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort library")
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
         LibrarySort.entries.forEach { option ->
@@ -176,7 +176,7 @@ private fun LibraryOverflowMenu(onEditCategories: () -> Unit) {
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
         DropdownMenuItem(
             text = { Text("Edit categories") },
-            leadingIcon = { Icon(Icons.Filled.Label, contentDescription = null) },
+            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },
             onClick = { onEditCategories(); expanded = false },
         )
     }
@@ -215,7 +215,7 @@ private fun EditCategoriesDialog(
                         } else {
                             Text(category.name, modifier = Modifier.weight(1f))
                             IconButton(onClick = { editing = category; editName = category.name }) {
-                                Icon(Icons.Filled.Label, contentDescription = "Rename ${category.name}")
+                                Icon(Icons.AutoMirrored.Filled.Label, contentDescription = "Rename ${category.name}")
                             }
                             IconButton(onClick = { onDelete(category.id) }) {
                                 Icon(Icons.Filled.Delete, contentDescription = "Delete ${category.name}")
