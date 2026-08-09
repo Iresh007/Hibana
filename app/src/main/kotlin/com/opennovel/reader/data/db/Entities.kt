@@ -25,7 +25,36 @@ data class NovelEntity(
     val inLibrary: Boolean = false,
     val dateAdded: Long = 0L,
     val lastReadChapterId: Long? = null,
+    /**
+     * Whether this entry reads as a comic or as prose. Stored per entry rather
+     * than derived from the source at read time: the source's ecosystem is only
+     * a good *default* (a Mihon source can carry a webtoon-format novel, and
+     * IReader hosts illustrated works), and deriving it live would silently
+     * change how something reads when an extension is updated or replaced.
+     * See [ContentType].
+     */
+    val contentType: String = ContentType.UNKNOWN.name,
 )
+
+/**
+ * What an entry actually is, which decides the reader it opens in, the settings
+ * that apply to it, and which library segment it appears under.
+ *
+ * [UNKNOWN] means "not yet decided" rather than a third kind of content — it is
+ * resolved to a concrete type on first fetch from the owning source's ecosystem,
+ * and the user can override it per entry afterwards.
+ */
+enum class ContentType {
+    COMIC,
+    NOVEL,
+    UNKNOWN,
+    ;
+
+    companion object {
+        fun from(value: String?): ContentType =
+            entries.firstOrNull { it.name == value } ?: UNKNOWN
+    }
+}
 
 /**
  * A chapter belonging to a novel. Tracks read state and download state so the
@@ -50,7 +79,16 @@ data class ChapterEntity(
     val name: String,
     val number: Float = -1f,
     val dateUpload: Long = 0L,
+    /**
+     * When *we* first saw this chapter, as opposed to when the site says it was
+     * posted. The Updates feed keys off this: many sources report no upload date
+     * at all, which would otherwise collapse every chapter onto the epoch and
+     * make the feed useless. Set once, on first insert.
+     */
+    val dateFetch: Long = 0L,
     val read: Boolean = false,
+    /** User-flagged chapter, surfaced as a filter and never auto-deleted. */
+    val bookmark: Boolean = false,
     /** Scroll offset (0f..1f) for resume. */
     val lastReadOffset: Float = 0f,
     val downloaded: Boolean = false,
@@ -157,8 +195,10 @@ data class ChapterWithNovel(
     val name: String,
     val url: String,
     val read: Boolean,
+    val bookmark: Boolean,
     val downloaded: Boolean,
     val dateUpload: Long,
+    val dateFetch: Long,
     val novelTitle: String,
     val coverUrl: String?,
 )

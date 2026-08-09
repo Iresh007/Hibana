@@ -1,6 +1,9 @@
 package com.opennovel.reader.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Explore
@@ -13,17 +16,18 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.ViewModelProvider
-import androidx.navigation.NavDestination.Companion.hierarchy
-import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavGraphBuilder
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
-import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.launch
 import com.opennovel.reader.ui.screens.BrowseHostScreen
 import com.opennovel.reader.ui.screens.DownloadsScreen
+import com.opennovel.reader.ui.screens.ExtensionInfoScreen
 import com.opennovel.reader.ui.screens.ExtensionReposScreen
 import com.opennovel.reader.ui.screens.ExtensionsScreen
 import com.opennovel.reader.ui.screens.GlobalSearchScreen
@@ -36,6 +40,8 @@ import com.opennovel.reader.ui.screens.MoreScreen
 import com.opennovel.reader.ui.screens.NovelDetailScreen
 import com.opennovel.reader.ui.screens.ReaderScreen
 import com.opennovel.reader.ui.screens.SettingsScreen
+import com.opennovel.reader.ui.screens.SettingsSectionScreen
+import com.opennovel.reader.ui.screens.StatsScreen
 import com.opennovel.reader.ui.screens.UpdatesScreen
 
 /**
@@ -54,86 +60,87 @@ private sealed class Dest(val route: String, val label: String) {
 private val bottomDests =
     listOf(Dest.Library, Dest.Updates, Dest.History, Dest.Browse, Dest.More)
 
+/** Route hosting all five tabs; detail screens push on top of it. */
+private const val HOME = "home"
+
 @Composable
 fun RootNav(factory: ViewModelProvider.Factory) {
     val nav = rememberNavController()
-    val backStack by nav.currentBackStackEntryAsState()
-    val currentRoute = backStack?.destination?.route
-    val showBar = currentRoute in bottomDests.map { it.route }
+
+    NavHost(navController = nav, startDestination = HOME) {
+        composable(HOME) { HomeTabs(factory = factory, nav = nav) }
+        detailRoutes(factory, nav)
+    }
+}
+
+/**
+ * The five top-level tabs in a pager, so they can be swiped between as well as
+ * tapped — the bottom bar alone gave no way to move sideways, which is the
+ * gesture people reach for first on a tabbed reader.
+ *
+ * The tabs live in one pager rather than as separate nav destinations because a
+ * NavHost swaps destinations outright: there is no adjacent page to drag in, so
+ * no amount of gesture handling on top of it would produce a real swipe.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun HomeTabs(factory: ViewModelProvider.Factory, nav: NavHostController) {
+    val pager = rememberPagerState(pageCount = { bottomDests.size })
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         bottomBar = {
-            if (showBar) {
-                NavigationBar {
-                    val current = backStack?.destination
-                    bottomDests.forEach { dest ->
-                        NavigationBarItem(
-                            selected = current?.hierarchy?.any { it.route == dest.route } == true,
-                            onClick = {
-                                nav.navigate(dest.route) {
-                                    popUpTo(nav.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    when (dest) {
-                                        Dest.Library -> Icons.AutoMirrored.Filled.MenuBook
-                                        Dest.Updates -> Icons.Filled.NewReleases
-                                        Dest.History -> Icons.Filled.History
-                                        Dest.Browse -> Icons.Filled.Explore
-                                        Dest.More -> Icons.Filled.MoreHoriz
-                                    },
-                                    contentDescription = dest.label,
-                                )
-                            },
-                            label = { Text(dest.label) },
-                        )
-                    }
+            NavigationBar {
+                bottomDests.forEachIndexed { index, dest ->
+                    NavigationBarItem(
+                        selected = pager.currentPage == index,
+                        onClick = { scope.launch { pager.animateScrollToPage(index) } },
+                        icon = {
+                            Icon(
+                                when (dest) {
+                                    Dest.Library -> Icons.AutoMirrored.Filled.MenuBook
+                                    Dest.Updates -> Icons.Filled.NewReleases
+                                    Dest.History -> Icons.Filled.History
+                                    Dest.Browse -> Icons.Filled.Explore
+                                    Dest.More -> Icons.Filled.MoreHoriz
+                                },
+                                contentDescription = dest.label,
+                            )
+                        },
+                        label = { Text(dest.label) },
+                    )
                 }
             }
         },
     ) { padding ->
-        NavHost(
-            navController = nav,
-            startDestination = Dest.Library.route,
+        HorizontalPager(
+            state = pager,
             modifier = Modifier.padding(padding),
-        ) {
-            composable(Dest.Library.route) {
-                LibraryScreen(
+            // Neighbours stay alive so swiping back to a tab keeps its scroll
+            // position and doesn't re-run its loaders.
+            beyondViewportPageCount = 1,
+            key = { bottomDests[it].route },
+        ) { page ->
+            when (bottomDests[page]) {
+                Dest.Library -> LibraryScreen(
                     factory = factory,
                     onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
                     // Ids are passed in the route so the screen can be reached
                     // for one title or a whole batch identically.
                     onMigrate = { ids -> nav.navigate("migrate/${ids.joinToString(",")}") },
                 )
-            }
-            composable("migrate/{novelIds}") { entry ->
-                val ids = entry.arguments?.getString("novelIds")
-                    ?.split(",")
-                    ?.mapNotNull { it.toLongOrNull() }
-                    .orEmpty()
-                MigrationScreen(
-                    novelIds = ids,
-                    factory = factory,
-                    onBack = { nav.popBackStack() },
-                )
-            }
-            composable(Dest.Updates.route) {
-                UpdatesScreen(
+
+                Dest.Updates -> UpdatesScreen(
                     factory = factory,
                     onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
                 )
-            }
-            composable(Dest.History.route) {
-                HistoryScreen(
+
+                Dest.History -> HistoryScreen(
                     factory = factory,
                     onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
                 )
-            }
-            composable(Dest.Browse.route) {
-                BrowseHostScreen(
+
+                Dest.Browse -> BrowseHostScreen(
                     factory = factory,
                     onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
                     onOpenRepos = { nav.navigate("extension_repos") },
@@ -141,70 +148,118 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     onMigrateFromSource = { sourceId -> nav.navigate("migrate_source/$sourceId") },
                     onGlobalSearch = { nav.navigate("global_search") },
                 )
+
+                Dest.More -> MoreScreen(
+                    factory = factory,
+                    onOpenExtensions = { nav.navigate("extensions") },
+                    onOpenDownloads = { nav.navigate("downloads") },
+                    onOpenSettings = { nav.navigate("settings") },
+                    onOpenSettingsSection = { section -> nav.navigate("settings/$section") },
+                    onOpenStats = { nav.navigate("stats") },
+                )
             }
-            composable("global_search") {
+        }
+    }
+}
+
+/** Everything reached from a tab, sharing one back stack. */
+private fun NavGraphBuilder.detailRoutes(
+    factory: ViewModelProvider.Factory,
+    nav: NavHostController,
+) {
+    composable("migrate/{novelIds}") { entry ->
+        val ids = entry.arguments?.getString("novelIds")
+            ?.split(",")
+            ?.mapNotNull { it.toLongOrNull() }
+            .orEmpty()
+        MigrationScreen(
+            novelIds = ids,
+            factory = factory,
+            onBack = { nav.popBackStack() },
+        )
+    }
+    composable("global_search") {
                 GlobalSearchScreen(
                     factory = factory,
                     onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
                     onBack = { nav.popBackStack() },
                 )
             }
-            composable("migrate_source/{sourceId}") { entry ->
-                val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
-                MigrateSourceScreen(
-                    sourceId = id,
-                    factory = factory,
-                    onBack = { nav.popBackStack() },
-                )
-            }
-            composable(Dest.More.route) {
-                MoreScreen(
-                    onOpenExtensions = { nav.navigate("extensions") },
-                    onOpenDownloads = { nav.navigate("downloads") },
-                    onOpenSettings = { nav.navigate("settings") },
-                )
-            }
-            composable("extensions") {
-                ExtensionsScreen(
-                    factory = factory,
-                    onOpenRepos = { nav.navigate("extension_repos") },
-                    onBrowseSource = { sourceId -> nav.navigate("source/$sourceId") },
-                )
-            }
-            composable("extension_repos") {
-                ExtensionReposScreen(factory = factory, onBack = { nav.popBackStack() })
-            }
-            composable("source/{sourceId}") { entry ->
-                val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
-                SourceBrowseScreen(
-                    sourceId = id,
-                    factory = factory,
-                    onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
-                    onBack = { nav.popBackStack() },
-                )
-            }
-            composable("downloads") {
-                DownloadsScreen(
-                    factory = factory,
-                    onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
-                )
-            }
-            composable("settings") { SettingsScreen(factory = factory) }
-            composable("novel/{novelId}") { entry ->
-                val id = entry.arguments?.getString("novelId")?.toLongOrNull() ?: return@composable
-                NovelDetailScreen(
-                    novelId = id,
-                    factory = factory,
-                    onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
-                    onBack = { nav.popBackStack() },
-                    onMigrate = { id2 -> nav.navigate("migrate/$id2") },
-                )
-            }
-            composable("reader/{chapterId}") { entry ->
-                val id = entry.arguments?.getString("chapterId")?.toLongOrNull() ?: return@composable
-                ReaderScreen(chapterId = id, factory = factory, onBack = { nav.popBackStack() })
-            }
-        }
+    composable("migrate_source/{sourceId}") { entry ->
+        val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
+        MigrateSourceScreen(
+            sourceId = id,
+            factory = factory,
+            onBack = { nav.popBackStack() },
+        )
+    }
+    composable("extensions") {
+        ExtensionsScreen(
+            factory = factory,
+            onOpenRepos = { nav.navigate("extension_repos") },
+            onBrowseSource = { sourceId -> nav.navigate("source/$sourceId") },
+            onOpenExtensionInfo = { pkg -> nav.navigate("extension_info/$pkg") },
+        )
+    }
+    composable("extension_info/{pkg}") { entry ->
+        val pkg = entry.arguments?.getString("pkg") ?: return@composable
+        ExtensionInfoScreen(
+            packageName = pkg,
+            factory = factory,
+            onBack = { nav.popBackStack() },
+            onBrowseSource = { sourceId -> nav.navigate("source/$sourceId") },
+        )
+    }
+    composable("extension_repos") {
+        ExtensionReposScreen(factory = factory, onBack = { nav.popBackStack() })
+    }
+    composable("source/{sourceId}") { entry ->
+        val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
+        SourceBrowseScreen(
+            sourceId = id,
+            factory = factory,
+            onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
+            onBack = { nav.popBackStack() },
+        )
+    }
+    composable("downloads") {
+        DownloadsScreen(
+            factory = factory,
+            onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+        )
+    }
+    composable("stats") {
+        StatsScreen(factory = factory, onBack = { nav.popBackStack() })
+    }
+    composable("settings") {
+        SettingsScreen(
+            factory = factory,
+            onBack = { nav.popBackStack() },
+            onOpenSection = { section -> nav.navigate("settings/$section") },
+        )
+    }
+    composable("settings/{section}") { entry ->
+        val section = entry.arguments?.getString("section") ?: return@composable
+        SettingsSectionScreen(
+            sectionId = section,
+            factory = factory,
+            onBack = { nav.popBackStack() },
+            onOpenRepos = { nav.navigate("extension_repos") },
+        )
+    }
+    composable("novel/{novelId}") { entry ->
+        val id = entry.arguments?.getString("novelId")?.toLongOrNull() ?: return@composable
+        NovelDetailScreen(
+            novelId = id,
+            factory = factory,
+            onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+            onBack = { nav.popBackStack() },
+            onMigrate = { id2 -> nav.navigate("migrate/$id2") },
+        )
+    }
+    composable("reader/{chapterId}") { entry ->
+        val id = entry.arguments?.getString("chapterId")?.toLongOrNull() ?: return@composable
+        ReaderScreen(chapterId = id, factory = factory, onBack = { nav.popBackStack() })
     }
 }
 

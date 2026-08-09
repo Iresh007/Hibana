@@ -26,6 +26,15 @@ class LibraryRepository(
     private val historyDao: HistoryDao,
     private val categoryDao: CategoryDao,
     private val sourceManager: SourceManager,
+    /**
+     * Whether history writes are currently suppressed.
+     *
+     * Passed as a function rather than a `SettingsRepository` so this repository
+     * keeps depending on nothing but its DAOs and the source manager, and so the
+     * value is read at the moment of the write — a snapshot captured at
+     * construction would keep recording after the user switched incognito on.
+     */
+    private val incognito: suspend () -> Boolean = { false },
 ) {
     fun observeLibrary(): Flow<List<NovelEntity>> = novelDao.observeLibrary()
 
@@ -76,21 +85,43 @@ class LibraryRepository(
     fun observeDownloaded(): Flow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
         chapterDao.observeDownloaded()
 
+    /** Exact library-wide chapter tallies, for Statistics. */
+    fun observeBookmarkedCount(): Flow<Int> = chapterDao.observeBookmarkedCount()
+
+    fun observeDownloadedCount(): Flow<Int> = chapterDao.observeDownloadedCount()
+
     suspend fun undownloadedChapterIds(novelId: Long): List<Long> =
         chapterDao.undownloadedIds(novelId)
 
     /**
      * Refreshes chapters for every library novel. Failures are per-novel so one
-     * dead source can't abort the whole sweep; returns how many succeeded.
+     * dead source can't abort the whole sweep.
+     *
+     * Returns a [RefreshReport] rather than a bare success count. A sweep that
+     * finds nothing and a sweep where every source was missing or threw look
+     * identical from the outside, and reporting only "ok" made a broken refresh
+     * indistinguishable from an up-to-date library — the user could not tell
+     * whether the feature was working.
      */
-    suspend fun refreshLibrary(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): Int {
+    suspend fun refreshLibrary(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): RefreshReport {
         val novels = novelDao.getAllInLibrary()
-        var ok = 0
+        var newChapters = 0
+        var failed = 0
+        var skipped = 0
         novels.forEachIndexed { index, novel ->
-            if (runCatching { refreshChapters(novel.id) }.isSuccess) ok++
+            when (val outcome = runCatching { refreshChapters(novel.id) }.getOrNull()) {
+                null -> failed++
+                RefreshOutcome.NO_SOURCE -> skipped++
+                else -> newChapters += outcome.newChapters
+            }
             onProgress(index + 1, novels.size)
         }
-        return ok
+        return RefreshReport(
+            scanned = novels.size,
+            newChapters = newChapters,
+            failed = failed,
+            skippedNoSource = skipped,
+        )
     }
 
     /** Recently read novels (one row per novel, newest first). */
@@ -155,11 +186,20 @@ class LibraryRepository(
         novelDao.setInLibrary(novelId, inLibrary, System.currentTimeMillis())
     }
 
-    /** Fetches chapters from the source and persists any new ones. */
-    suspend fun refreshChapters(novelId: Long) {
-        val novel = novelDao.getById(novelId) ?: return
-        val source = sourceManager.get(novel.sourceId) ?: return
+    /**
+     * Fetches chapters from the source and persists any new ones, stamping each
+     * with the time we first saw it so the Updates feed can order by it.
+     *
+     * A missing source is reported as [RefreshOutcome.NO_SOURCE] rather than
+     * treated as success. Returning silently here was why a refresh over a
+     * library whose extensions had not loaded (or were untrusted) looked like it
+     * ran cleanly while doing nothing at all.
+     */
+    suspend fun refreshChapters(novelId: Long): RefreshOutcome {
+        val novel = novelDao.getById(novelId) ?: return RefreshOutcome.NO_SOURCE
+        val source = sourceManager.get(novel.sourceId) ?: return RefreshOutcome.NO_SOURCE
         val remote = source.getChapterList(novel.url)
+        val now = System.currentTimeMillis()
         val entities = remote.mapIndexed { index, ch: SChapter ->
             ChapterEntity(
                 novelId = novelId,
@@ -167,19 +207,58 @@ class LibraryRepository(
                 name = ch.name,
                 number = ch.number,
                 dateUpload = ch.dateUpload,
+                dateFetch = now,
                 sourceOrder = index,
             )
         }
-        chapterDao.insertAll(entities)
+        // IGNORE returns -1 for rows we already had, so the count of non-negative
+        // ids is exactly the number of genuinely new chapters.
+        val ids = chapterDao.insertAllReturningIds(entities)
+        return RefreshOutcome(newChapters = ids.count { it >= 0 })
     }
 
+    /**
+     * Marks a chapter read/unread. Marking read also records history: reading is
+     * reading whether it happened in the reader or by tapping through a chapter
+     * list, and History that only reflected one of those looked broken.
+     */
     suspend fun markRead(chapterId: Long, read: Boolean, offset: Float = 0f) {
         chapterDao.setReadState(chapterId, read, offset)
+        if (read) {
+            chapterDao.getById(chapterId)?.let { recordHistory(it.novelId, chapterId) }
+        }
     }
 
-    suspend fun saveProgress(novelId: Long, chapterId: Long, offset: Float) {
-        chapterDao.setReadState(chapterId, read = offset >= 0.98f, offset = offset)
+    suspend fun setBookmark(chapterId: Long, bookmark: Boolean) =
+        chapterDao.setBookmark(chapterId, bookmark)
+
+    /** Batch equivalents, for multi-select in the chapter list. */
+    suspend fun markReadFor(ids: List<Long>, read: Boolean) {
+        if (ids.isEmpty()) return
+        chapterDao.setReadStateFor(ids, read, if (read) 1f else 0f)
+        if (read) {
+            chapterDao.getByIds(ids).maxByOrNull { it.sourceOrder }
+                ?.let { recordHistory(it.novelId, it.id) }
+        }
+    }
+
+    suspend fun setBookmarkFor(ids: List<Long>, bookmark: Boolean) {
+        if (ids.isNotEmpty()) chapterDao.setBookmarkFor(ids, bookmark)
+    }
+
+    /**
+     * Records that a chapter was opened. Called when the reader loads a chapter,
+     * not only when scroll progress changes — a chapter short enough to need no
+     * scrolling, or one the user backed out of, previously left no trace in
+     * History at all.
+     *
+     * Honours incognito mode. The resume pointer is still updated so closing and
+     * reopening an entry returns to the right place; only the visible History
+     * trail is suppressed, which is what incognito is actually promising.
+     */
+    suspend fun recordHistory(novelId: Long, chapterId: Long) {
         novelDao.setLastReadChapter(novelId, chapterId)
+        if (incognito()) return
         historyDao.upsert(
             HistoryEntity(
                 novelId = novelId,
@@ -188,4 +267,45 @@ class LibraryRepository(
             ),
         )
     }
+
+    suspend fun saveProgress(novelId: Long, chapterId: Long, offset: Float) {
+        chapterDao.setReadState(chapterId, read = offset >= 0.98f, offset = offset)
+        recordHistory(novelId, chapterId)
+    }
+}
+
+/** Result of refreshing one entry. */
+@JvmInline
+value class RefreshOutcome(val newChapters: Int) {
+    companion object {
+        /** The owning source isn't loaded — extension missing, disabled, or untrusted. */
+        val NO_SOURCE = RefreshOutcome(-1)
+    }
+}
+
+/**
+ * Outcome of a full library sweep, detailed enough that the UI can say what
+ * actually happened rather than just stopping the spinner.
+ */
+data class RefreshReport(
+    val scanned: Int,
+    val newChapters: Int,
+    val failed: Int,
+    val skippedNoSource: Int,
+) {
+    val hadProblems: Boolean get() = failed > 0 || skippedNoSource > 0
+
+    /** One line suitable for a snackbar. */
+    fun summary(): String = when {
+        scanned == 0 -> "Library is empty — add something first"
+        newChapters > 0 && hadProblems ->
+            "$newChapters new chapter${s(newChapters)}, ${failed + skippedNoSource} entr${if (failed + skippedNoSource == 1) "y" else "ies"} could not be checked"
+        newChapters > 0 -> "$newChapters new chapter${s(newChapters)}"
+        skippedNoSource == scanned && scanned > 0 ->
+            "No sources available — install or trust the extensions first"
+        hadProblems -> "No new chapters · ${failed + skippedNoSource} could not be checked"
+        else -> "No new chapters"
+    }
+
+    private fun s(n: Int) = if (n == 1) "" else "s"
 }

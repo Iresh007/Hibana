@@ -41,7 +41,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
             HistoryViewModel(c.libraryRepository)
         modelClass.isAssignableFrom(UpdatesViewModel::class.java) ->
-            UpdatesViewModel(c.libraryRepository, c.downloader)
+            UpdatesViewModel(c.libraryRepository, c.downloader, c.settingsRepository)
         modelClass.isAssignableFrom(DownloadsViewModel::class.java) ->
             DownloadsViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(MigrationViewModel::class.java) ->
@@ -54,6 +54,8 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
             SettingsViewModel(c.settingsRepository, c.appContext, c.translationManager)
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
             BackupViewModel(c.backupManager)
+        modelClass.isAssignableFrom(StatsViewModel::class.java) ->
+            StatsViewModel(c.libraryRepository, c.sourceManager)
         modelClass.isAssignableFrom(SourceBrowseViewModel::class.java) ->
             SourceBrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
@@ -373,6 +375,7 @@ class MigrationViewModel(
 class UpdatesViewModel(
     private val repo: LibraryRepository,
     private val downloader: Downloader,
+    private val settings: SettingsRepository,
 ) : ViewModel() {
 
     val updates: StateFlow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
@@ -386,18 +389,36 @@ class UpdatesViewModel(
     private val _progress = MutableStateFlow<String?>(null)
     val progress: StateFlow<String?> = _progress.asStateFlow()
 
+    /** One-shot result line for a snackbar; cleared once shown. */
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    /** When the last sweep finished, so the screen can say how stale this is. */
+    val lastRefresh: StateFlow<Long> = settings.lastLibraryRefresh
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0L)
+
     fun refresh() {
         if (_refreshing.value) return
         _refreshing.value = true
         viewModelScope.launch {
-            repo.refreshLibrary { done, total -> _progress.value = "$done / $total" }
+            val report = repo.refreshLibrary { done, total -> _progress.value = "$done / $total" }
+            settings.setLastLibraryRefresh(System.currentTimeMillis())
+            // Always say what happened. A silent spinner that stops is
+            // indistinguishable from a refresh that did nothing, which is
+            // exactly why this looked broken.
+            _message.value = report.summary()
             _progress.value = null
             _refreshing.value = false
         }
     }
 
+    fun consumeMessage() { _message.value = null }
+
     fun markRead(chapterId: Long, read: Boolean) =
         viewModelScope.launch { repo.markRead(chapterId, read, if (read) 1f else 0f) }
+
+    fun toggleBookmark(chapterId: Long, bookmark: Boolean) =
+        viewModelScope.launch { repo.setBookmark(chapterId, bookmark) }
 
     fun download(chapterId: Long) = viewModelScope.launch { downloader.download(chapterId) }
 }
@@ -1050,6 +1071,11 @@ class ReaderViewModel(
             val chapter = repo.getChapter(chapterId)
             current = chapter
             if (chapter == null) { _error.value = "Chapter not found"; _loading.value = false; return@launch }
+
+            // Record the open immediately. Waiting for a scroll event meant a
+            // chapter that fits on one screen, or one the user backed out of,
+            // never reached History at all.
+            repo.recordHistory(chapter.novelId, chapter.id)
             val text = if (chapter.downloaded && chapter.downloadPath != null) {
                 downloader.readLocal(chapter.downloadPath)?.let { ChapterText(it.split("\n\n")) }
             } else {

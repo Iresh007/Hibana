@@ -11,6 +11,7 @@ import com.opennovel.reader.source.SourceManager
 import com.opennovel.reader.source.builtin.GutenbergSource
 import com.opennovel.reader.tts.TtsManager
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.flow.first
 import java.util.concurrent.TimeUnit
 
 /**
@@ -32,12 +33,16 @@ class AppContainer(context: Context) {
 
     val sourceManager = SourceManager()
 
+    // Declared before the library repository, which reads incognito mode from it.
+    val settingsRepository = SettingsRepository(context)
+
     val libraryRepository = LibraryRepository(
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
         historyDao = database.historyDao(),
         categoryDao = database.categoryDao(),
         sourceManager = sourceManager,
+        incognito = { settingsRepository.settings.first().incognitoMode },
     )
 
     val backupManager = com.opennovel.reader.backup.BackupManager(
@@ -54,8 +59,6 @@ class AppContainer(context: Context) {
         chapterDao = database.chapterDao(),
         sourceManager = sourceManager,
     )
-
-    val settingsRepository = SettingsRepository(context)
 
     val downloader = Downloader(
         context = context,

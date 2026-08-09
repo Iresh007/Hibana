@@ -95,8 +95,14 @@ fun ReaderScreen(
     }
 
     // Persist scroll progress as the user reads.
-    LaunchedEffect(listState.firstVisibleItemIndex, isManga) {
-        val total = if (isManga) pageUrls.size else content?.paragraphs?.size ?: return@LaunchedEffect
+    //
+    // The loaded content is a key. Without it the first pass ran while content
+    // was still null, bailed out, and — because neither the scroll index nor
+    // isManga changed when the chapter finally arrived — never ran again, so
+    // progress was only ever saved if the user happened to scroll.
+    val paragraphCount = content?.paragraphs?.size ?: 0
+    LaunchedEffect(listState.firstVisibleItemIndex, isManga, paragraphCount, pageUrls.size) {
+        val total = if (isManga) pageUrls.size else paragraphCount
         if (total > 0) vm.saveProgress(listState.firstVisibleItemIndex.toFloat() / total)
     }
 
