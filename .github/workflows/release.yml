@@ -131,13 +131,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download APK
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           name: release-apk
           path: artifacts
 
       - name: Create release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ needs.extract-tag.outputs.tag }}
           name: Hibana ${{ needs.extract-tag.outputs.tag }}
@@ -145,3 +145,6 @@ jobs:
           draft: false
           prerelease: ${{ contains(needs.extract-tag.outputs.tag, '-') }}
           files: artifacts/*.apk
+          # Without this the release publishes even if the glob matched nothing,
+          # producing a Release with no APK attached and no failure to notice.
+          fail_on_unmatched_files: true
