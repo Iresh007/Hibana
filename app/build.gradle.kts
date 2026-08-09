@@ -79,6 +79,9 @@ dependencies {
     implementation(libs.ksoup)
     implementation(libs.ksoup.network)
     implementation(libs.kotlinx.datetime)
+
+    // LNReader JS plugin engine.
+    implementation(libs.rhino)
     implementation(libs.coil.compose)
 
     debugImplementation(libs.androidx.ui.tooling)

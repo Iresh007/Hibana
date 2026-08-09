@@ -24,6 +24,7 @@ ireader = "1.5.1"
 ktor = "3.3.2"
 ksoup = "0.2.6"
 kotlinxDatetime = "0.7.1"
+rhino = "1.7.15"
 
 [libraries]
 androidx-preference = { group = "androidx.preference", name = "preference-ktx", version.ref = "preference" }
@@ -64,6 +65,9 @@ ktor-serialization-json = { group = "io.ktor", name = "ktor-serialization-kotlin
 ksoup = { group = "io.github.ireaderorg", name = "ksoup", version.ref = "ksoup" }
 ksoup-network = { group = "io.github.ireaderorg", name = "ksoup-network", version.ref = "ksoup" }
 kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
+# Rhino runs LNReader's JS plugins. They compile to ES5, so a pure-JVM engine
+# works and avoids QuickJS's NDK/ABI-split cost. Must run interpreted on Android.
+rhino = { group = "org.mozilla", name = "rhino", version.ref = "rhino" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

@@ -60,7 +60,8 @@ class AppContainer(context: Context) {
         IReaderExtensionLoader(context),                 // native IReader novel extensions
         ApkExtensionLoader(context, Ecosystem.MIHON),    // manga (image) extensions
         ApkExtensionLoader(context, Ecosystem.MANATAN),  // manga (image) extensions
-        // LNReaderLoader wired once a JsRuntime (QuickJS/Rhino) is provided.
+        // LNReader JS plugins, run on Rhino (plugins compile to ES5).
+        com.opennovel.reader.extension.lnreader.LNReaderPluginLoader(context, httpClient),
     )
 
     val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager)
