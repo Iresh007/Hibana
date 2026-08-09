@@ -54,8 +54,10 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
             SettingsViewModel(c.settingsRepository, c.appContext, c.translationManager)
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
             BackupViewModel(c.backupManager)
+        modelClass.isAssignableFrom(SourceBrowseViewModel::class.java) ->
+            SourceBrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
-            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager)
+            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.appContext)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
             ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
@@ -550,7 +552,120 @@ class ExtensionsViewModel(
     private val extensionManager: com.opennovel.reader.extension.ExtensionManager,
     private val loaders: List<com.opennovel.reader.extension.ExtensionLoader>,
     private val sourceManager: SourceManager,
+    private val repoStore: com.opennovel.reader.extension.ExtensionRepoStore,
+    private val indexParser: com.opennovel.reader.extension.RepoIndexParser,
+    private val appContext: android.content.Context,
 ) : ViewModel() {
+
+    // --- repositories ("extension stores") ---
+
+    val repos: StateFlow<List<com.opennovel.reader.extension.ExtensionRepo>> =
+        repoStore.repos.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Everything the enabled repos offer, annotated with installed state. */
+    private val _catalogue = MutableStateFlow<List<com.opennovel.reader.extension.RepoExtension>>(emptyList())
+
+    /** Languages present in the catalogue, for the filter list. */
+    val languages: StateFlow<List<String>> = _catalogue
+        .map { list -> list.map { it.lang }.distinct().sorted() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _enabledLanguages = MutableStateFlow<Set<String>>(emptySet())
+    val enabledLanguages: StateFlow<Set<String>> = _enabledLanguages.asStateFlow()
+
+    /** Catalogue after the language filter; empty filter means show everything. */
+    val catalogue: StateFlow<List<com.opennovel.reader.extension.RepoExtension>> =
+        combine(_catalogue, _enabledLanguages) { list, langs ->
+            if (langs.isEmpty()) list else list.filter { it.lang in langs }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Extensions with a newer version available, surfaced as an update count. */
+    val updatable: StateFlow<List<com.opennovel.reader.extension.RepoExtension>> =
+        _catalogue.map { list -> list.filter { it.hasUpdate } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun addRepo(url: String, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch {
+            val ok = repoStore.add(url)
+            if (ok) refreshCatalogue()
+            onResult(ok)
+        }
+    }
+
+    fun removeRepo(url: String) = viewModelScope.launch { repoStore.remove(url); refreshCatalogue() }
+
+    fun setRepoEnabled(url: String, enabled: Boolean) =
+        viewModelScope.launch { repoStore.setEnabled(url, enabled); refreshCatalogue() }
+
+    fun toggleLanguage(lang: String) {
+        _enabledLanguages.value = if (lang in _enabledLanguages.value) {
+            _enabledLanguages.value - lang
+        } else {
+            _enabledLanguages.value + lang
+        }
+    }
+
+    /** Pulls every enabled repo index and marks what's already installed. */
+    fun refreshCatalogue() {
+        viewModelScope.launch {
+            _busy.value = true
+            val installedVersions = extensionManager.installed.value
+                .associate { it.pkgId to it.versionName }
+            val all = repoStore.repos.first()
+                .filter { it.enabled }
+                .flatMap { repo ->
+                    runCatching { indexParser.fetch(repo) }.getOrDefault(emptyList())
+                }
+                .map { it.copy(installedVersion = installedVersions[it.pkgId]) }
+            _catalogue.value = all
+            _busy.value = false
+            if (all.isEmpty()) _status.value = "No extensions found in the enabled stores"
+        }
+    }
+
+    /**
+     * Installs a catalogue entry. LNReader plugins are downloaded and loaded
+     * in-app; APK extensions must go through the system package installer, which
+     * requires the user to confirm — we can't silently install them.
+     */
+    fun installFromCatalogue(item: com.opennovel.reader.extension.RepoExtension) {
+        viewModelScope.launch {
+            when (item.ecosystem) {
+                com.opennovel.reader.extension.Ecosystem.LNREADER -> {
+                    val loader = lnLoader ?: return@launch
+                    val info = com.opennovel.reader.extension.ExtensionInfo(
+                        pkgId = item.pkgId,
+                        name = item.name,
+                        lang = item.lang,
+                        versionName = item.version,
+                        ecosystem = item.ecosystem,
+                        installed = false,
+                        artifact = item.artifact,
+                    )
+                    val ok = runCatching { loader.install(info) }.getOrDefault(false)
+                    if (ok) {
+                        runCatching { loader.load(info) }.getOrDefault(emptyList())
+                            .forEach(sourceManager::register)
+                        refreshInstalled()
+                        refreshCatalogue()
+                    }
+                    _status.value = if (ok) "Installed ${item.name}" else "Failed to install ${item.name}"
+                }
+                else -> {
+                    // Hand the APK URL to the browser/downloader; Android's
+                    // installer takes over from there.
+                    runCatching {
+                        val intent = android.content.Intent(
+                            android.content.Intent.ACTION_VIEW,
+                            android.net.Uri.parse(item.artifact),
+                        ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        appContext.startActivity(intent)
+                        _status.value = "Opening installer for ${item.name}"
+                    }.onFailure { _status.value = "Could not open the APK for ${item.name}" }
+                }
+            }
+        }
+    }
 
     private val _installed = MutableStateFlow<List<com.opennovel.reader.extension.ExtensionInfo>>(emptyList())
     val installed: StateFlow<List<com.opennovel.reader.extension.ExtensionInfo>> = _installed.asStateFlow()
@@ -609,7 +724,64 @@ class ExtensionsViewModel(
         }
     }
 
+    /**
+     * Source ids an installed extension contributed. Matched by name, because a
+     * loaded source doesn't record which package produced it.
+     */
+    fun sourceIdsFor(info: com.opennovel.reader.extension.ExtensionInfo): List<Long> =
+        sourceManager.catalogueSources()
+            .filter { it.name.equals(info.name, true) || info.name.contains(it.name, true) }
+            .map { it.id }
+
     fun clearStatus() { _status.value = null }
+}
+
+/** Browses one source's Popular / Latest listings. */
+class SourceBrowseViewModel(
+    private val sourceManager: SourceManager,
+    private val repo: LibraryRepository,
+) : ViewModel() {
+
+    private var sourceId: Long = -1
+
+    private val _results = MutableStateFlow<List<SNovel>>(emptyList())
+    val results: StateFlow<List<SNovel>> = _results.asStateFlow()
+
+    private val _loading = MutableStateFlow(false)
+    val loading: StateFlow<Boolean> = _loading.asStateFlow()
+
+    private val _sourceName = MutableStateFlow("")
+    val sourceName: StateFlow<String> = _sourceName.asStateFlow()
+
+    private val _supportsLatest = MutableStateFlow(false)
+    val supportsLatest: StateFlow<Boolean> = _supportsLatest.asStateFlow()
+
+    fun bind(id: Long) {
+        if (sourceId == id) return
+        sourceId = id
+        val source = sourceManager.get(id)
+        _sourceName.value = source?.name ?: "Source"
+        _supportsLatest.value = source?.supportsLatest ?: false
+        _results.value = emptyList()
+    }
+
+    fun loadPopular() = load { it.getPopularNovels(1) }
+
+    fun loadLatest() = load { it.getLatestNovels(1) }
+
+    private fun load(block: suspend (com.opennovel.reader.source.Source) -> com.opennovel.reader.source.model.NovelsPage) {
+        val source = sourceManager.get(sourceId) ?: return
+        _loading.value = true
+        viewModelScope.launch {
+            _results.value = runCatching { block(source).novels }.getOrDefault(emptyList())
+            _loading.value = false
+        }
+    }
+
+    suspend fun cacheForDetails(novel: SNovel): Long? {
+        if (sourceId < 0) return null
+        return repo.cacheNovel(sourceId, novel)
+    }
 }
 
 class BackupViewModel(private val backup: com.opennovel.reader.backup.BackupManager) : ViewModel() {
@@ -882,6 +1054,7 @@ class ReaderViewModel(
 
     override fun onCleared() { tts.stop() }
 }
+
 
 
 

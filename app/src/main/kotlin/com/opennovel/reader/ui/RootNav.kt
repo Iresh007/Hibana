@@ -24,7 +24,9 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.opennovel.reader.ui.screens.BrowseScreen
 import com.opennovel.reader.ui.screens.DownloadsScreen
+import com.opennovel.reader.ui.screens.ExtensionReposScreen
 import com.opennovel.reader.ui.screens.ExtensionsScreen
+import com.opennovel.reader.ui.screens.SourceBrowseScreen
 import com.opennovel.reader.ui.screens.HistoryScreen
 import com.opennovel.reader.ui.screens.LibraryScreen
 import com.opennovel.reader.ui.screens.MigrationScreen
@@ -141,7 +143,25 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     onOpenSettings = { nav.navigate("settings") },
                 )
             }
-            composable("extensions") { ExtensionsScreen(factory = factory) }
+            composable("extensions") {
+                ExtensionsScreen(
+                    factory = factory,
+                    onOpenRepos = { nav.navigate("extension_repos") },
+                    onBrowseSource = { sourceId -> nav.navigate("source/$sourceId") },
+                )
+            }
+            composable("extension_repos") {
+                ExtensionReposScreen(factory = factory, onBack = { nav.popBackStack() })
+            }
+            composable("source/{sourceId}") { entry ->
+                val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
+                SourceBrowseScreen(
+                    sourceId = id,
+                    factory = factory,
+                    onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
+                    onBack = { nav.popBackStack() },
+                )
+            }
             composable("downloads") {
                 DownloadsScreen(
                     factory = factory,

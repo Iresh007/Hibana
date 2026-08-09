@@ -81,6 +81,10 @@ class AppContainer(context: Context) {
         com.opennovel.reader.extension.lnreader.LNReaderPluginLoader(context, httpClient),
     )
 
+    /** User-managed extension repositories and their index parser. */
+    val extensionRepoStore = com.opennovel.reader.extension.ExtensionRepoStore(context.applicationContext)
+    val repoIndexParser = com.opennovel.reader.extension.RepoIndexParser(httpClient)
+
     val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager)
 
     init {
@@ -102,5 +106,6 @@ class AppContainer(context: Context) {
     /** Scan installed Mihon/Manatan/IReader extensions and register their sources. */
     suspend fun loadInstalledExtensions() = extensionManager.loadInstalled()
 }
+
 
 

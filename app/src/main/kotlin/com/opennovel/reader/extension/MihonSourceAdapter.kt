@@ -31,8 +31,18 @@ class MihonSourceAdapter(
     override val lang: String = catalogue?.lang ?: native.lang.ifBlank { "all" }
     override val baseUrl: String = (native as? HttpSource)?.baseUrl ?: ""
 
+    override val supportsLatest: Boolean = catalogue?.supportsLatest ?: false
+
     override suspend fun getPopularNovels(page: Int): NovelsPage =
         catalogue?.getPopularManga(page)?.toNovelsPage() ?: NovelsPage(emptyList(), false)
+
+    override suspend fun getLatestNovels(page: Int): NovelsPage {
+        val cat = catalogue ?: return NovelsPage(emptyList(), false)
+        // Sources advertising no latest feed throw from the default impl.
+        if (!cat.supportsLatest) return getPopularNovels(page)
+        return runCatching { cat.getLatestUpdates(page).toNovelsPage() }
+            .getOrElse { getPopularNovels(page) }
+    }
 
     override suspend fun searchNovels(query: String, page: Int): NovelsPage {
         val cat = catalogue ?: return NovelsPage(emptyList(), false)

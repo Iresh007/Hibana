@@ -32,6 +32,16 @@ interface Source {
     /** Free-text search. */
     suspend fun searchNovels(query: String, page: Int): NovelsPage
 
+    /**
+     * Recently updated listing, for the browse "Latest" tab. Defaults to the
+     * popular listing so sources that don't expose a latest feed still work
+     * rather than showing an empty tab.
+     */
+    suspend fun getLatestNovels(page: Int): NovelsPage = getPopularNovels(page)
+
+    /** Whether this source has a genuine latest feed, for hiding the tab. */
+    val supportsLatest: Boolean get() = false
+
     /** Full details for a novel given its source-relative url. */
     suspend fun getNovelDetails(url: String): SNovel
 
