@@ -24,12 +24,10 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.FilterList
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.SwapHoriz
-import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.DropdownMenu
@@ -37,18 +35,24 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -86,6 +90,7 @@ fun LibraryScreen(
     val selectedCategory by vm.selectedCategory.collectAsStateWithLifecycle()
 
     var showEditCategories by remember { mutableStateOf(false) }
+    var showFilterSheet by remember { mutableStateOf(false) }
     var assignTarget by remember { mutableStateOf<NovelEntity?>(null) }
 
     val selection by vm.selection.collectAsStateWithLifecycle()
@@ -123,18 +128,19 @@ fun LibraryScreen(
             TopAppBar(
                 title = { Text(if (novels.isEmpty()) "Library" else "Library (${novels.size})") },
                 actions = {
-                    LibraryFilterMenu(
-                        filters = filters,
-                        onCycleDownloaded = vm::cycleDownloadedFilter,
-                        onCycleUnread = vm::cycleUnreadFilter,
-                        onCycleStarted = vm::cycleStartedFilter,
-                        onClear = vm::clearFilters,
-                    )
-                    LibraryDisplayMenu(
-                        current = settings.libraryDisplayMode,
-                        onSelect = vm::setLibraryDisplayMode,
-                    )
-                    LibrarySortMenu(current = sort, onSelect = vm::setSort)
+                    IconButton(onClick = { showFilterSheet = true }) {
+                        Icon(
+                            Icons.Filled.FilterList,
+                            contentDescription = "Filter, sort and display",
+                            // Tinting when filtered stops a forgotten filter from
+                            // silently explaining an apparently empty library.
+                            tint = if (filters.active > 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                LocalContentColor.current
+                            },
+                        )
+                    }
                     LibraryOverflowMenu(onEditCategories = { showEditCategories = true })
                 },
             )
@@ -219,6 +225,16 @@ fun LibraryScreen(
         }
     }
 
+    if (showFilterSheet) {
+        LibraryFilterSheet(
+            filters = filters,
+            sort = sort,
+            settings = settings,
+            vm = vm,
+            onDismiss = { showFilterSheet = false },
+        )
+    }
+
     if (showEditCategories) {
         EditCategoriesDialog(
             categories = categories,
@@ -240,106 +256,111 @@ fun LibraryScreen(
     }
 }
 
-@Composable
-private fun LibrarySortMenu(current: LibrarySort, onSelect: (LibrarySort) -> Unit) {
-    var expanded by remember { mutableStateOf(false) }
-    IconButton(onClick = { expanded = true }) {
-        Icon(Icons.AutoMirrored.Filled.Sort, contentDescription = "Sort library")
-    }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        LibrarySort.entries.forEach { option ->
-            DropdownMenuItem(
-                text = { Text(option.label) },
-                onClick = { onSelect(option); expanded = false },
-                trailingIcon = {
-                    if (option == current) Icon(Icons.Filled.Check, contentDescription = null)
-                },
-            )
-        }
-    }
-}
-
 /**
- * Tri-state filters. Each row cycles ignored → include → exclude, and the icon
- * carries a dot when any filter is active so a hidden filter never silently
- * explains an "empty" library.
+ * Mihon's combined Filter / Sort / Display sheet.
+ *
+ * One sheet with three tabs rather than three toolbar menus: these are adjusted
+ * together while looking at the grid, and a bottom sheet keeps the library
+ * visible behind it so each change shows its effect immediately.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun LibraryFilterMenu(
+private fun LibraryFilterSheet(
     filters: LibraryFilters,
-    onCycleDownloaded: () -> Unit,
-    onCycleUnread: () -> Unit,
-    onCycleStarted: () -> Unit,
-    onClear: () -> Unit,
+    sort: LibrarySort,
+    settings: com.opennovel.reader.data.ReaderSettings,
+    vm: LibraryViewModel,
+    onDismiss: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    IconButton(onClick = { expanded = true }) {
-        Icon(
-            Icons.Filled.FilterList,
-            contentDescription = "Filter library",
-            tint = if (filters.active > 0) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                LocalContentColor.current
-            },
-        )
-    }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        FilterRow("Downloaded", filters.downloaded, onCycleDownloaded)
-        FilterRow("Unread", filters.unread, onCycleUnread)
-        FilterRow("Started", filters.started, onCycleStarted)
-        if (filters.active > 0) {
-            DropdownMenuItem(
-                text = { Text("Clear filters") },
-                onClick = { onClear(); expanded = false },
-            )
+    var tab by remember { mutableIntStateOf(0) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        TabRow(selectedTabIndex = tab) {
+            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Filter") })
+            Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Sort") })
+            Tab(selected = tab == 2, onClick = { tab = 2 }, text = { Text("Display") })
+        }
+
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(top = 12.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            when (tab) {
+                0 -> {
+                    Text(
+                        "Tap to cycle: off → only → exclude",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                        modifier = Modifier.padding(bottom = 6.dp),
+                    )
+                    FilterRow("Downloaded", filters.downloaded, vm::cycleDownloadedFilter)
+                    FilterRow("Unread", filters.unread, vm::cycleUnreadFilter)
+                    FilterRow("Started", filters.started, vm::cycleStartedFilter)
+                    if (filters.active > 0) {
+                        TextButton(onClick = vm::clearFilters) { Text("Clear filters") }
+                    }
+                }
+
+                1 -> LibrarySort.entries.forEach { option ->
+                    Row(
+                        Modifier.fillMaxWidth().clickableMinTouch { vm.setSort(option) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = sort == option, onClick = null)
+                        Text(option.label, Modifier.padding(start = 8.dp))
+                    }
+                }
+
+                else -> {
+                    Text("Layout", style = MaterialTheme.typography.labelLarge)
+                    LibraryDisplayMode.entries.forEach { mode ->
+                        Row(
+                            Modifier.fillMaxWidth().clickableMinTouch { vm.setLibraryDisplayMode(mode) },
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(selected = settings.libraryDisplayMode == mode, onClick = null)
+                            Text(mode.label, Modifier.padding(start = 8.dp))
+                        }
+                    }
+                    HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                    Text("Badges", style = MaterialTheme.typography.labelLarge)
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text("Unread and downloaded counts", Modifier.weight(1f))
+                        Switch(
+                            checked = settings.showLibraryBadges,
+                            onCheckedChange = vm::setShowLibraryBadges,
+                        )
+                    }
+                }
+            }
         }
     }
 }
 
+/** One tri-state filter row; tapping cycles off → only → exclude. */
 @Composable
 private fun FilterRow(label: String, state: FilterState, onClick: () -> Unit) {
-    DropdownMenuItem(
-        text = { Text(label) },
-        onClick = onClick,
-        trailingIcon = {
-            when (state) {
-                FilterState.IGNORED -> Unit
-                FilterState.INCLUDED -> Icon(
-                    Icons.Filled.Check,
-                    contentDescription = "Only $label",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                // A distinct icon, not just a colour change: "exclude" is easy
-                // to mistake for "include" if only the tint differs.
-                FilterState.EXCLUDED -> Icon(
-                    Icons.Filled.Block,
-                    contentDescription = "Exclude $label",
-                    tint = MaterialTheme.colorScheme.error,
-                )
-            }
-        },
-    )
-}
-
-/** Grid density / list toggle, kept in the toolbar like Mihon's. */
-@Composable
-private fun LibraryDisplayMenu(
-    current: LibraryDisplayMode,
-    onSelect: (LibraryDisplayMode) -> Unit,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    IconButton(onClick = { expanded = true }) {
-        Icon(Icons.Filled.GridView, contentDescription = "Display mode")
-    }
-    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-        LibraryDisplayMode.entries.forEach { mode ->
-            DropdownMenuItem(
-                text = { Text(mode.label) },
-                onClick = { onSelect(mode); expanded = false },
-                trailingIcon = {
-                    if (mode == current) Icon(Icons.Filled.Check, contentDescription = null)
-                },
+    Row(
+        Modifier.fillMaxWidth().clickableMinTouch(onClick),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(label, Modifier.weight(1f))
+        when (state) {
+            FilterState.IGNORED -> Unit
+            FilterState.INCLUDED -> Icon(
+                Icons.Filled.Check,
+                contentDescription = "Only $label",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            // A distinct icon, not just a colour change: "exclude" is easy to
+            // mistake for "include" when only the tint differs.
+            FilterState.EXCLUDED -> Icon(
+                Icons.Filled.Block,
+                contentDescription = "Exclude $label",
+                tint = MaterialTheme.colorScheme.error,
             )
         }
     }
@@ -655,3 +676,4 @@ private fun EmptyLibrary() {
         }
     }
 }
+

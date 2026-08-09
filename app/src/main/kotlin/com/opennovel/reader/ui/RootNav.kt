@@ -131,9 +131,20 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                 )
             }
             composable(Dest.Browse.route) {
-                BrowseScreen(
+                BrowseHostScreen(
                     factory = factory,
                     onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
+                    onOpenRepos = { nav.navigate("extension_repos") },
+                    onBrowseSource = { sourceId -> nav.navigate("source/$sourceId") },
+                    onMigrateFromSource = { sourceId -> nav.navigate("migrate_source/$sourceId") },
+                )
+            }
+            composable("migrate_source/{sourceId}") { entry ->
+                val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
+                MigrateSourceScreen(
+                    sourceId = id,
+                    factory = factory,
+                    onBack = { nav.popBackStack() },
                 )
             }
             composable(Dest.More.route) {

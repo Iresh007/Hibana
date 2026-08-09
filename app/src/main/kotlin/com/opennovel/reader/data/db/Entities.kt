@@ -140,6 +140,8 @@ data class NovelCounts(
     val unread: Int,
     val downloaded: Int,
     val total: Int,
+    /** Newest chapter upload time, for "sort by latest chapter". */
+    val latestUpload: Long = 0L,
 ) {
     /** "Started" means at least one chapter has been read — Mihon's definition. */
     val started: Boolean get() = total > unread

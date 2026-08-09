@@ -64,10 +64,14 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
     } as T
 }
 
-/** How the library grid is ordered. */
+/** How the library grid is ordered, mirroring Mihon's sort sheet. */
 enum class LibrarySort(val label: String) {
-    TITLE("Title"),
-    RECENTLY_ADDED("Recently added"),
+    TITLE("Alphabetically"),
+    TOTAL_CHAPTERS("Total chapters"),
+    UNREAD_COUNT("Unread count"),
+    LATEST_CHAPTER("Latest chapter"),
+    RECENTLY_ADDED("Date added"),
+    RANDOM("Random"),
 }
 
 /** Sentinel category id for the "Default" tab (novels in no user category). */
@@ -94,6 +98,13 @@ enum class FilterState { IGNORED, INCLUDED, EXCLUDED;
         EXCLUDED -> !has
     }
 }
+
+/** How many library entries come from a given source. */
+data class LibrarySourceUsage(
+    val sourceId: Long,
+    val sourceName: String,
+    val count: Int,
+)
 
 /** The library filter set, mirroring Mihon's filter sheet. */
 data class LibraryFilters(
@@ -171,8 +182,17 @@ class LibraryViewModel(
             when (sort) {
                 LibrarySort.TITLE -> filtered.sortedBy { it.title.lowercase() }
                 LibrarySort.RECENTLY_ADDED -> filtered.sortedByDescending { it.dateAdded }
+                LibrarySort.TOTAL_CHAPTERS -> filtered.sortedByDescending { countsById[it.id]?.total ?: 0 }
+                LibrarySort.UNREAD_COUNT -> filtered.sortedByDescending { countsById[it.id]?.unread ?: 0 }
+                LibrarySort.LATEST_CHAPTER -> filtered.sortedByDescending { countsById[it.id]?.latestUpload ?: 0L }
+                // Seeded per session so the order is stable while browsing but
+                // differs next time — a reshuffle on every recomposition would
+                // make the grid unusable.
+                LibrarySort.RANDOM -> filtered.shuffled(java.util.Random(randomSeed))
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val randomSeed = System.currentTimeMillis()
 
     fun cycleDownloadedFilter() { _filters.value = _filters.value.copy(downloaded = _filters.value.downloaded.next()) }
     fun cycleUnreadFilter() { _filters.value = _filters.value.copy(unread = _filters.value.unread.next()) }
@@ -205,6 +225,9 @@ class LibraryViewModel(
 
     fun setLibraryDisplayMode(mode: com.opennovel.reader.data.LibraryDisplayMode) =
         viewModelScope.launch { settingsRepository.setLibraryDisplayMode(mode) }
+
+    fun setShowLibraryBadges(show: Boolean) =
+        viewModelScope.launch { settingsRepository.setShowLibraryBadges(show) }
 
     // --- category management ---
 
@@ -450,6 +473,32 @@ class BrowseViewModel(
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
     val sources = sourceManager.sources
+
+    /** Sources the library actually draws from, for the Migrate tab. */
+    val librarySources: StateFlow<List<LibrarySourceUsage>> =
+        repo.observeLibrary()
+            .map { novels ->
+                novels.groupingBy { it.sourceId }.eachCount()
+                    .map { (id, count) ->
+                        LibrarySourceUsage(
+                            sourceId = id,
+                            // A removed extension leaves entries behind, so name
+                            // the source unknown rather than dropping the row —
+                            // those are exactly the ones needing migration.
+                            sourceName = sourceManager.get(id)?.name ?: "Unknown source ($id)",
+                            count = count,
+                        )
+                    }
+                    .sortedByDescending { it.count }
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Library entry ids belonging to one source, for whole-source migration. */
+    fun novelIdsForSource(sourceId: Long, onLoaded: (List<Long>) -> Unit) {
+        viewModelScope.launch {
+            onLoaded(repo.observeLibrary().first().filter { it.sourceId == sourceId }.map { it.id })
+        }
+    }
 
     var activeSourceId: Long? = sourceManager.catalogueSources().firstOrNull()?.id
         private set

@@ -109,7 +109,8 @@ interface ChapterDao {
         SELECT novelId AS novelId,
                SUM(CASE WHEN read = 0 THEN 1 ELSE 0 END) AS unread,
                SUM(CASE WHEN downloaded = 1 THEN 1 ELSE 0 END) AS downloaded,
-               COUNT(*) AS total
+               COUNT(*) AS total,
+               MAX(dateUpload) AS latestUpload
         FROM chapters
         GROUP BY novelId
         """,

@@ -21,7 +21,10 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "0.1.0"
+        // The release workflow passes -PversionName=<tag without v>, so the
+        // installed app reports exactly what was shipped. Falls back to the
+        // literal for local builds.
+        versionName = (project.findProperty("versionName") as String?) ?: "0.1.0"
         vectorDrawables { useSupportLibrary = true }
     }
 

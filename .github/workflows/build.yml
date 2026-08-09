@@ -1,0 +1,70 @@
+name: Build & Test
+
+# Verification workflow for every change. Kept separate from release.yml so a
+# failing PR never blocks tagging, and a release never silently skips checks.
+#
+# Gradle is invoked directly rather than through ./gradlew because the binary
+# gradle-wrapper.jar is intentionally not vendored in this repo.
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A newer push supersedes an in-flight run for the same ref.
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build & Test App
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+        with:
+          gradle-version: '8.11.1'
+
+      - name: Generate Gradle wrapper
+        run: gradle wrapper --gradle-version 8.11.1
+
+      - name: Build debug APK
+        run: gradle :app:assembleDebug --stacktrace
+
+      - name: Unit tests
+        run: gradle :app:testDebugUnitTest --stacktrace
+
+      # Lint should surface problems without gating the build on pre-existing
+      # warnings; the report is uploaded for inspection either way.
+      - name: Lint
+        run: gradle :app:lintDebug --stacktrace || true
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v6
+        with:
+          name: app-debug
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: warn
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: build-reports
+          path: |
+            app/build/reports/**
+          if-no-files-found: ignore
