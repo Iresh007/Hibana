@@ -8,7 +8,9 @@ plugins {
 
 android {
     namespace = "com.opennovel.reader"
-    compileSdk = 34
+    // 35 is required by Room 2.7.x / current AndroidX; targetSdk stays at 34 so
+    // no runtime behaviour changes ship with the toolchain bump.
+    compileSdk = 35
 
     defaultConfig {
         // User-facing app identity is Hibana (話). The code namespace stays
@@ -65,6 +67,16 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlin.reflect)
     implementation(libs.androidx.preference)
+
+    // IReader extension runtime: extensions link against these at load time.
+    implementation(libs.ireader.source.api)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
+    implementation(libs.ksoup)
+    implementation(libs.ksoup.network)
+    implementation(libs.kotlinx.datetime)
     implementation(libs.coil.compose)
 
     debugImplementation(libs.androidx.ui.tooling)

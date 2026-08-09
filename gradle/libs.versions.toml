@@ -1,20 +1,27 @@
 [versions]
-agp = "8.5.2"
-kotlin = "2.0.20"
-ksp = "2.0.20-1.0.25"
-coreKtx = "1.13.1"
-lifecycle = "2.8.6"
-activityCompose = "1.9.2"
-composeBom = "2024.09.03"
-navigationCompose = "2.8.2"
-room = "2.6.1"
+# Toolchain is pinned to what IReader extensions are built against (Kotlin 2.2.21,
+# ktor 3.3.2, serialization 1.9.0) so their published source-api artifact and the
+# extension dex resolve against matching Kotlin metadata.
+agp = "8.7.3"
+kotlin = "2.2.21"
+ksp = "2.2.21-2.0.5"
+coreKtx = "1.15.0"
+lifecycle = "2.8.7"
+activityCompose = "1.9.3"
+composeBom = "2024.12.01"
+navigationCompose = "2.8.5"
+room = "2.7.1"
 datastore = "1.1.1"
 okhttp = "4.12.0"
 jsoup = "1.18.1"
-serialization = "1.7.3"
+serialization = "1.9.0"
 coroutines = "1.9.0"
 coil = "2.7.0"
 preference = "1.2.1"
+ireader = "1.5.1"
+ktor = "3.3.2"
+ksoup = "0.2.6"
+kotlinxDatetime = "0.7.1"
 
 [libraries]
 androidx-preference = { group = "androidx.preference", name = "preference-ktx", version.ref = "preference" }
@@ -43,6 +50,18 @@ kotlinx-serialization-protobuf = { group = "org.jetbrains.kotlinx", name = "kotl
 kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "coroutines" }
 kotlin-reflect = { group = "org.jetbrains.kotlin", name = "kotlin-reflect", version.ref = "kotlin" }
 coil-compose = { group = "io.coil-kt", name = "coil-compose", version.ref = "coil" }
+
+# IReader extension runtime. The real published source-api is used rather than a
+# hand-written shim so extension classes resolve against the exact ABI they were
+# compiled against. ktor + ksoup are the transitive APIs extensions call directly.
+ireader-source-api = { group = "io.github.ireaderorg", name = "source-api", version.ref = "ireader" }
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
+ksoup = { group = "io.github.ireaderorg", name = "ksoup", version.ref = "ksoup" }
+ksoup-network = { group = "io.github.ireaderorg", name = "ksoup-network", version.ref = "ksoup" }
+kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime", version.ref = "kotlinxDatetime" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
