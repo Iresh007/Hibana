@@ -82,6 +82,12 @@ dependencies {
 
     // LNReader JS plugin engine.
     implementation(libs.rhino)
+
+    // On-device OCR: lets TTS read manga pages (images) aloud.
+    implementation(libs.mlkit.text.latin)
+    implementation(libs.mlkit.text.japanese)
+    implementation(libs.mlkit.text.korean)
+    implementation(libs.mlkit.text.chinese)
     implementation(libs.coil.compose)
 
     debugImplementation(libs.androidx.ui.tooling)

@@ -22,7 +22,7 @@ import eu.kanade.tachiyomi.source.Source as TachiyomiSource
 class MihonSourceAdapter(
     private val native: TachiyomiSource,
     private val ecosystem: Ecosystem,
-) : Source {
+) : Source, com.opennovel.reader.source.ImageChapterSource {
 
     private val catalogue: CatalogueSource? = native as? CatalogueSource
 
@@ -52,12 +52,20 @@ class MihonSourceAdapter(
             .map { it.toSChapter() }
     }
 
-    override suspend fun getChapterText(chapterUrl: String): ChapterText = ChapterText(
-        listOf(
-            "This is a ${ecosystem.label} manga source — chapters are images, not text.",
-            "Hibana renders text novels; open manga sources in an image reader.",
-        ),
-    )
+    /**
+     * Manga chapters are images, so there is no source-provided text. The reader
+     * renders [getPageUrls] instead, and text-to-speech OCRs those pages.
+     */
+    override suspend fun getChapterText(chapterUrl: String): ChapterText = ChapterText(emptyList())
+
+    override suspend fun getPageUrls(chapterUrl: String): List<String> {
+        val stub = eu.kanade.tachiyomi.source.model.SChapter.create().apply { url = chapterUrl }
+        val pages = runCatching { native.getPageList(stub) }.getOrDefault(emptyList())
+        return pages.mapNotNull { page ->
+            page.imageUrl?.takeIf { it.isNotBlank() }
+                ?: page.url.takeIf { it.isNotBlank() }
+        }
+    }
 
     private fun MangasPage.toNovelsPage() = NovelsPage(mangas.map { it.toSNovel() }, hasNextPage)
 

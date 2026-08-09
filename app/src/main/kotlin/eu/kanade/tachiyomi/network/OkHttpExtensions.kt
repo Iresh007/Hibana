@@ -50,6 +50,20 @@ suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
     cont.invokeOnCancellation { runCatching { cancel() } }
 }
 
+/**
+ * The form modern keiyoushi extensions actually call. Identical to [await] but
+ * named to signal the non-2xx throw; omitting it makes those extensions fail to
+ * resolve at class-init, so the whole source silently refuses to load.
+ */
+suspend fun Call.awaitSuccess(): Response {
+    val response = await()
+    if (!response.isSuccessful) {
+        response.close()
+        throw IOException("HTTP error ${response.code}")
+    }
+    return response
+}
+
 fun Response.asJsoup(html: String? = null): Document =
     Jsoup.parse(html ?: body!!.string(), request.url.toString())
 

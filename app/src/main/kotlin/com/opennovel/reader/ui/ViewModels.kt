@@ -16,6 +16,7 @@ import com.opennovel.reader.download.Downloader
 import com.opennovel.reader.source.SourceManager
 import com.opennovel.reader.source.model.ChapterText
 import com.opennovel.reader.source.model.SNovel
+import com.opennovel.reader.tts.OcrScript
 import com.opennovel.reader.tts.TtsManager
 import com.opennovel.reader.tts.TtsState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -46,7 +47,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
             BackupViewModel(c.backupManager)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
-            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.settingsRepository)
+            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.settingsRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
     } as T
 }
@@ -349,6 +350,7 @@ class ReaderViewModel(
     private val sourceManager: SourceManager,
     private val downloader: Downloader,
     val tts: TtsManager,
+    private val ocr: com.opennovel.reader.tts.MangaPageOcr,
     settingsRepo: SettingsRepository,
 ) : ViewModel() {
 
@@ -366,10 +368,19 @@ class ReaderViewModel(
     val settings = settingsRepo.settings
         .stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
 
+    /** Page images when the chapter comes from a manga source; empty for novels. */
+    private val _pageUrls = MutableStateFlow<List<String>>(emptyList())
+    val pageUrls: StateFlow<List<String>> = _pageUrls.asStateFlow()
+
+    /** True while manga pages are being OCR'd for narration. */
+    private val _ocrRunning = MutableStateFlow(false)
+    val ocrRunning: StateFlow<Boolean> = _ocrRunning.asStateFlow()
+
     private var current: ChapterEntity? = null
 
     fun load(chapterId: Long) {
         _loading.value = true; _error.value = null
+        _pageUrls.value = emptyList()
         viewModelScope.launch {
             val chapter = repo.getChapter(chapterId)
             current = chapter
@@ -379,7 +390,14 @@ class ReaderViewModel(
             } else {
                 repo.fetchChapterText(chapter)
             }
-            if (text == null) _error.value = "Could not load chapter" else _content.value = text
+            _content.value = text
+
+            // Text sources yield paragraphs; manga sources yield page images instead.
+            if (text == null || text.paragraphs.isEmpty()) {
+                val pages = repo.fetchPageUrls(chapter)
+                _pageUrls.value = pages
+                if (pages.isEmpty() && text == null) _error.value = "Could not load chapter"
+            }
             _loading.value = false
         }
     }
@@ -394,11 +412,33 @@ class ReaderViewModel(
         viewModelScope.launch { repo.saveProgress(c.novelId, c.id, offset) }
     }
 
-    fun startTts(speed: Float, pitch: Float, voice: String) {
-        val paras = _content.value?.paragraphs ?: return
-        tts.init {
-            tts.configure(speed, pitch, voice)
-            tts.speak(paras, tts.state.value.index)
+    /**
+     * Narrates the chapter. Novels speak their paragraphs directly; manga has no
+     * source text, so its pages are OCR'd first and the recognised lines spoken.
+     * OCR result is cached in [_content] so a replay doesn't re-run recognition.
+     */
+    fun startTts(speed: Float, pitch: Float, voice: String, script: OcrScript = OcrScript.LATIN) {
+        viewModelScope.launch {
+            var paras = _content.value?.paragraphs.orEmpty()
+
+            if (paras.isEmpty()) {
+                val pages = _pageUrls.value
+                if (pages.isEmpty()) return@launch
+                _ocrRunning.value = true
+                paras = runCatching { ocr.readChapter(pages, script) }.getOrDefault(emptyList())
+                _ocrRunning.value = false
+                if (paras.isEmpty()) {
+                    _error.value = "No text recognised on these pages"
+                    return@launch
+                }
+                _content.value = ChapterText(paras)
+            }
+
+            val speakable = paras
+            tts.init {
+                tts.configure(speed, pitch, voice)
+                tts.speak(speakable, tts.state.value.index)
+            }
         }
     }
     fun pauseTts() = tts.pause()

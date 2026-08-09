@@ -84,6 +84,17 @@ class LibraryRepository(
         return novel?.lastReadChapterId ?: chapterDao.firstChapterId(novelId)
     }
 
+    /**
+     * Page image URLs for a chapter, when the owning source is image-based
+     * (Mihon/Manatan manga). Empty for text sources.
+     */
+    suspend fun fetchPageUrls(chapter: ChapterEntity): List<String> {
+        val novel = novelDao.getById(chapter.novelId) ?: return emptyList()
+        val source = sourceManager.get(novel.sourceId) as? com.opennovel.reader.source.ImageChapterSource
+            ?: return emptyList()
+        return runCatching { source.getPageUrls(chapter.url) }.getOrDefault(emptyList())
+    }
+
     /** Resolves the owning source and fetches a chapter body from the network. */
     suspend fun fetchChapterText(chapter: ChapterEntity): com.opennovel.reader.source.model.ChapterText? {
         val novel = novelDao.getById(chapter.novelId) ?: return null

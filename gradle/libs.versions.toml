@@ -69,6 +69,13 @@ kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime",
 # works and avoids QuickJS's NDK/ABI-split cost. Must run interpreted on Android.
 rhino = { group = "org.mozilla", name = "rhino", version.ref = "rhino" }
 
+# On-device OCR so text-to-speech can read *manga* pages, which are images.
+# Script-specific models are separate artifacts; CJK matters for this app.
+mlkit-text-latin = { group = "com.google.mlkit", name = "text-recognition", version = "16.0.1" }
+mlkit-text-japanese = { group = "com.google.mlkit", name = "text-recognition-japanese", version = "16.0.1" }
+mlkit-text-korean = { group = "com.google.mlkit", name = "text-recognition-korean", version = "16.0.1" }
+mlkit-text-chinese = { group = "com.google.mlkit", name = "text-recognition-chinese", version = "16.0.1" }
+
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
 kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
