@@ -57,7 +57,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(SourceBrowseViewModel::class.java) ->
             SourceBrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
-            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.appContext)
+            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.extensionTrustStore, c.appContext)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
             ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
@@ -554,6 +554,7 @@ class ExtensionsViewModel(
     private val sourceManager: SourceManager,
     private val repoStore: com.opennovel.reader.extension.ExtensionRepoStore,
     private val indexParser: com.opennovel.reader.extension.RepoIndexParser,
+    private val trustStore: com.opennovel.reader.extension.ExtensionTrustStore,
     private val appContext: android.content.Context,
 ) : ViewModel() {
 
@@ -721,6 +722,45 @@ class ExtensionsViewModel(
             }
             _status.value = if (ok) "Installed ${info.name}" else "Failed to install ${info.name}"
             _busy.value = false
+        }
+    }
+
+    /**
+     * Approves an extension's signing certificate and loads it immediately, so
+     * trusting takes effect without a restart.
+     */
+    fun trust(info: com.opennovel.reader.extension.ExtensionInfo) {
+        val signature = info.signatureHash ?: return
+        viewModelScope.launch {
+            trustStore.trust(info.pkgId, signature)
+            loaders.firstOrNull { it.ecosystem == info.ecosystem }?.let { loader ->
+                runCatching { loader.load(info.copy(trusted = true)) }.getOrDefault(emptyList())
+                    .forEach(sourceManager::register)
+            }
+            refreshInstalled()
+            _status.value = "Trusted ${info.name}"
+        }
+    }
+
+    /**
+     * Revokes trust. Already-registered sources are unregistered so the
+     * extension stops being usable now rather than at next launch.
+     */
+    fun untrust(info: com.opennovel.reader.extension.ExtensionInfo) {
+        viewModelScope.launch {
+            trustStore.untrust(info.pkgId)
+            sourceIdsFor(info).forEach(sourceManager::unregister)
+            refreshInstalled()
+            _status.value = "Removed trust for ${info.name}"
+        }
+    }
+
+    /** Mihon's "revoke all unknown extensions". */
+    fun revokeAllTrust() {
+        viewModelScope.launch {
+            trustStore.revokeAll()
+            refreshInstalled()
+            _status.value = "All extension trust revoked — restart to fully unload"
         }
     }
 
@@ -1054,6 +1094,7 @@ class ReaderViewModel(
 
     override fun onCleared() { tts.stop() }
 }
+
 
 
 

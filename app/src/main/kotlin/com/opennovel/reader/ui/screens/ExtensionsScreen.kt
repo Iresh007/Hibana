@@ -34,6 +34,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -143,7 +144,11 @@ fun ExtensionsScreen(
                             info = info,
                             // Long-press opens the source's own catalogue, which
                             // is how you discover what an extension actually has.
-                            onBrowse = { vm.sourceIdsFor(info).firstOrNull()?.let(onBrowseSource) },
+                            onBrowse = {
+                                if (info.trusted) vm.sourceIdsFor(info).firstOrNull()?.let(onBrowseSource)
+                            },
+                            onTrust = { vm.trust(info) },
+                            onUntrust = { vm.untrust(info) },
                         )
                     }
                 }
@@ -211,11 +216,21 @@ private fun LanguageFilterDialog(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun InstalledExtensionRow(info: ExtensionInfo, onBrowse: () -> Unit) {
+private fun InstalledExtensionRow(
+    info: ExtensionInfo,
+    onBrowse: () -> Unit,
+    onTrust: () -> Unit,
+    onUntrust: () -> Unit,
+) {
+    var showUntrust by remember { mutableStateOf(false) }
+
     Row(
         Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onBrowse, onLongClick = onBrowse)
+            .combinedClickable(
+                onClick = onBrowse,
+                onLongClick = { if (info.trusted) showUntrust = true },
+            )
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -227,15 +242,43 @@ private fun InstalledExtensionRow(info: ExtensionInfo, onBrowse: () -> Unit) {
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                "${info.ecosystem.label} · ${info.lang} · v${info.versionName}",
+                buildString {
+                    append("${info.ecosystem.label} · ${info.lang} · v${info.versionName}")
+                    if (!info.trusted) append(" · not trusted")
+                },
                 style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                color = if (info.trusted) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                } else {
+                    MaterialTheme.colorScheme.error
+                },
             )
         }
-        Icon(
-            Icons.Filled.Check,
-            contentDescription = "Installed",
-            tint = MaterialTheme.colorScheme.primary,
+        if (info.trusted) {
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = "Trusted",
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        } else {
+            TextButton(onClick = onTrust) { Text("Trust") }
+        }
+    }
+
+    if (showUntrust) {
+        AlertDialog(
+            onDismissRequest = { showUntrust = false },
+            title = { Text("Remove trust?") },
+            text = {
+                Text(
+                    "${info.name} will stop loading and its sources will be removed. " +
+                        "You can trust it again at any time.",
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { onUntrust(); showUntrust = false }) { Text("Remove trust") }
+            },
+            dismissButton = { TextButton(onClick = { showUntrust = false }) { Text("Cancel") } },
         )
     }
 }

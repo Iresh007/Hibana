@@ -6,6 +6,7 @@ import android.content.pm.PackageManager
 import com.opennovel.reader.extension.Ecosystem
 import com.opennovel.reader.extension.ExtensionInfo
 import com.opennovel.reader.extension.ExtensionLoader
+import com.opennovel.reader.extension.signatureHashOf
 import com.opennovel.reader.source.Source
 import dalvik.system.DexClassLoader
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,8 @@ import java.io.File
  */
 class IReaderExtensionLoader(
     private val context: Context,
+    /** Same approval gate as the other APK ecosystems; see [ApkExtensionLoader]. */
+    private val trustStore: com.opennovel.reader.extension.ExtensionTrustStore? = null,
 ) : ExtensionLoader {
 
     override val ecosystem = Ecosystem.IREADER
@@ -51,6 +54,7 @@ class IReaderExtensionLoader(
             val meta = pkg.applicationInfo?.metaData ?: return@mapNotNull null
             val sourceClass = meta.getString(METADATA_SOURCE_CLASS)?.trim() ?: return@mapNotNull null
             if (!isSupportedVersion(pkg.versionName)) return@mapNotNull null
+            val signature = pm.signatureHashOf(pkg.packageName)
             ExtensionInfo(
                 pkgId = pkg.packageName,
                 name = pkg.applicationInfo!!.loadLabel(pm).toString(),
@@ -59,11 +63,19 @@ class IReaderExtensionLoader(
                 ecosystem = Ecosystem.IREADER,
                 installed = true,
                 artifact = pkg.applicationInfo!!.sourceDir,
+                signatureHash = signature,
+                trusted = trustStore == null ||
+                    (signature != null && trustStore.isTrusted(pkg.packageName, signature)),
             ).also { it.attach(sourceClass, meta.getString(METADATA_DESCRIPTION).orEmpty()) }
         }
     }
 
     override suspend fun load(info: ExtensionInfo): List<Source> = withContext(Dispatchers.IO) {
+        // Approval gate before any class loading — see ApkExtensionLoader.load.
+        if (trustStore != null) {
+            val signature = info.signatureHash ?: return@withContext emptyList()
+            if (!trustStore.isTrusted(info.pkgId, signature)) return@withContext emptyList()
+        }
         if (!IReaderRuntime.isAvailable()) {
             throw IReaderRuntimeUnavailable(
                 "IReader extension '${info.name}' cannot run: the host app does not yet " +

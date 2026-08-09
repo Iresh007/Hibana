@@ -34,6 +34,11 @@ import dalvik.system.PathClassLoader
 class ApkExtensionLoader(
     private val context: Context,
     override val ecosystem: Ecosystem,
+    /**
+     * Approvals for extension code. Null keeps every extension trusted, which is
+     * only appropriate in tests — the app always supplies a real store.
+     */
+    private val trustStore: ExtensionTrustStore? = null,
 ) : ExtensionLoader {
 
     private val featureKey: String = when (ecosystem) {
@@ -58,6 +63,7 @@ class ApkExtensionLoader(
         return packages.mapNotNull { pkg ->
             val meta = pkg.applicationInfo?.metaData ?: return@mapNotNull null
             if (!meta.containsKey(featureKey)) return@mapNotNull null
+            val signature = pm.signatureHashOf(pkg.packageName)
             ExtensionInfo(
                 pkgId = pkg.packageName,
                 name = pkg.applicationInfo!!.loadLabel(pm).toString(),
@@ -66,11 +72,22 @@ class ApkExtensionLoader(
                 ecosystem = ecosystem,
                 installed = true,
                 artifact = pkg.applicationInfo!!.sourceDir,
+                signatureHash = signature,
+                trusted = trustStore == null || signature != null &&
+                    trustStore.isTrusted(pkg.packageName, signature),
             )
         }
     }
 
     override suspend fun load(info: ExtensionInfo): List<Source> {
+        // Untrusted extensions are never instantiated: loading is what executes
+        // their code, so the check has to happen before class loading, not at
+        // first use.
+        if (trustStore != null) {
+            val signature = info.signatureHash ?: return emptyList()
+            if (!trustStore.isTrusted(info.pkgId, signature)) return emptyList()
+        }
+
         val pm = context.packageManager
         val flags = PackageManager.GET_META_DATA
         val appInfo = pm.getApplicationInfoCompat(info.pkgId, flags)

@@ -16,6 +16,17 @@ data class ExtensionInfo(
     val installed: Boolean,
     /** Path/URL to the extension artifact (APK, .js bundle, repo entry). */
     val artifact: String,
+    /**
+     * SHA-256 of the APK signing certificate, or null for non-APK ecosystems.
+     * Trust is keyed on this so a re-signed update must be re-approved.
+     */
+    val signatureHash: String? = null,
+    /**
+     * Whether the user has approved running this extension's code. APK
+     * extensions start untrusted; JS plugins are sandboxed in the JS runtime and
+     * are installed deliberately by the user, so they don't need this gate.
+     */
+    val trusted: Boolean = true,
 )
 
 /**

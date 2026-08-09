@@ -72,11 +72,17 @@ class AppContainer(context: Context) {
     /** On-device translation for OCR'd manga text and novel chapters. */
     val translationManager = com.opennovel.reader.tts.TranslationManager()
 
+    /**
+     * Approvals for extension code. Extensions run in this process, so APK-based
+     * ones are not loaded until the user trusts their signing certificate.
+     */
+    val extensionTrustStore = com.opennovel.reader.extension.ExtensionTrustStore(context.applicationContext)
+
     /** Loaders for each third-party extension ecosystem we interoperate with. */
     val extensionLoaders: List<ExtensionLoader> = listOf(
-        IReaderExtensionLoader(context),                 // native IReader novel extensions
-        ApkExtensionLoader(context, Ecosystem.MIHON),    // manga (image) extensions
-        ApkExtensionLoader(context, Ecosystem.MANATAN),  // manga (image) extensions
+        IReaderExtensionLoader(context, extensionTrustStore),          // native IReader novel extensions
+        ApkExtensionLoader(context, Ecosystem.MIHON, extensionTrustStore),
+        ApkExtensionLoader(context, Ecosystem.MANATAN, extensionTrustStore),
         // LNReader JS plugins, run on Rhino (plugins compile to ES5).
         com.opennovel.reader.extension.lnreader.LNReaderPluginLoader(context, httpClient),
     )
