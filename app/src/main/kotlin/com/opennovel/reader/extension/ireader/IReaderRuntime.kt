@@ -13,11 +13,11 @@ import android.content.Context
  *     which needs concrete `HttpClientsInterface` + `PreferenceStore` implementations
  *     (IReader supplies these from its `:core` module).
  *
- * This object is the single wiring point. Once `source-api` (and the two impls)
- * are bundled, set [dependencyFactory] at startup and IReader extensions light up
- * with no further changes to the loader or adapter. Until then [isAvailable] is
- * false and the loader fails fast with a clear message rather than crashing deep
- * inside reflection.
+ * Both are now satisfied: the app depends on the published
+ * `io.github.ireaderorg:source-api`, and [IReaderDependencyFactory] builds the
+ * graph. [AppContainer] sets [dependencyFactory] at startup, so [isAvailable]
+ * is true in normal operation; it stays false (and the loader fails fast with a
+ * clear message) if that wiring is ever removed.
  */
 object IReaderRuntime {
 

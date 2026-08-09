@@ -71,6 +71,12 @@ class AppContainer(context: Context) {
         uy.kohesive.injekt.Injekt.addSingleton(eu.kanade.tachiyomi.network.NetworkHelper(context.applicationContext))
         uy.kohesive.injekt.Injekt.addSingleton(context.applicationContext)
 
+        // Supply the IReader Dependencies graph so IReaderExtensionLoader can
+        // construct extension sources (isAvailable() gates on this being set).
+        com.opennovel.reader.extension.ireader.IReaderRuntime.dependencyFactory = { ctx, pkg ->
+            com.opennovel.reader.extension.ireader.IReaderDependencyFactory.create(ctx, pkg)
+        }
+
         // Register built-in sources so the app has content on first launch.
         sourceManager.register(GutenbergSource(httpClient))
     }
