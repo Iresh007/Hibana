@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -5,6 +7,24 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
 }
+
+/**
+ * Release signing credentials.
+ *
+ * Two sources, neither committed: CI supplies environment variables from repo
+ * secrets, local builds read `keystore.properties` at the project root. The
+ * keystore and that file are gitignored — an app signing key is a permanent
+ * identity, and publishing one lets anyone ship updates users' devices accept.
+ */
+val keystorePropertiesFile = rootProject.file("keystore.properties")
+val keystoreProperties = Properties().apply {
+    if (keystorePropertiesFile.exists()) {
+        keystorePropertiesFile.inputStream().use { load(it) }
+    }
+}
+
+fun signingValue(env: String, property: String): String? =
+    System.getenv(env) ?: keystoreProperties.getProperty(property)
 
 android {
     namespace = "com.opennovel.reader"
@@ -28,10 +48,36 @@ android {
         vectorDrawables { useSupportLibrary = true }
     }
 
+    signingConfigs {
+        create("release") {
+            val storePath = signingValue("SIGNING_STORE_FILE", "storeFile")
+            if (storePath != null && file(storePath).exists()) {
+                storeFile = file(storePath)
+                storePassword = signingValue("SIGNING_STORE_PASSWORD", "storePassword")
+                keyAlias = signingValue("SIGNING_KEY_ALIAS", "keyAlias")
+                keyPassword = signingValue("SIGNING_KEY_PASSWORD", "keyPassword")
+                // v2/v3 give faster verification and rotation support; v1 keeps
+                // pre-Nougat installs working, which our minSdk 26 doesn't need
+                // but costs nothing.
+                enableV1Signing = true
+                enableV2Signing = true
+                enableV3Signing = true
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Only attach the config when a keystore was actually resolved, so a
+            // clone without credentials still builds (unsigned) instead of failing.
+            signingConfig = signingConfigs.getByName("release").takeIf { it.storeFile != null }
+        }
+        debug {
+            // Debug keeps the default debug key so `assembleDebug` needs nothing.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
         }
     }
     compileOptions {

@@ -64,43 +64,59 @@ jobs:
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.11.1
 
-      # versionName follows the tag so the installed app reports what was shipped.
-      - name: Build release APK
-        run: |
-          gradle :app:assembleRelease --stacktrace \
-            -PversionName=${{ needs.extract-tag.outputs.version }}
-
-      # Signing only runs when the secrets exist, so forks and first-time runs
-      # still produce an (unsigned) artifact instead of failing outright.
-      - name: Sign APK
-        id: sign
-        if: ${{ env.KEYSTORE_B64 != '' }}
+      # Fail early and explicitly. A release that quietly ships unsigned produces
+      # an APK users cannot install as an update, and the cause is not obvious
+      # from the artifact itself.
+      - name: Verify signing secrets are present
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}
           KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
           STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
         run: |
-          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/keystore.jks"
-          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
-          UNSIGNED=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
-          "$BUILD_TOOLS/zipalign" -p -f 4 "$UNSIGNED" app/build/outputs/apk/release/hibana-aligned.apk
-          "$BUILD_TOOLS/apksigner" sign \
-            --ks "$RUNNER_TEMP/keystore.jks" \
-            --ks-key-alias "$KEY_ALIAS" \
-            --ks-pass "pass:$STORE_PASSWORD" \
-            --key-pass "pass:$KEY_PASSWORD" \
-            --out "app/build/outputs/apk/release/hibana-${{ needs.extract-tag.outputs.tag }}.apk" \
-            app/build/outputs/apk/release/hibana-aligned.apk
-          rm -f "$RUNNER_TEMP/keystore.jks" app/build/outputs/apk/release/hibana-aligned.apk
+          missing=""
+          [ -z "$KEYSTORE_B64" ]   && missing="$missing SIGNING_KEYSTORE"
+          [ -z "$KEY_ALIAS" ]      && missing="$missing SIGNING_KEY_ALIAS"
+          [ -z "$KEY_PASSWORD" ]   && missing="$missing SIGNING_KEY_PASSWORD"
+          [ -z "$STORE_PASSWORD" ] && missing="$missing SIGNING_STORE_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing repository secrets:$missing"
+            echo "Add them under Settings > Secrets and variables > Actions." >&2
+            exit 1
+          fi
 
-      - name: Name unsigned APK
-        if: ${{ env.KEYSTORE_B64 == '' }}
+      - name: Decode keystore
         env:
           KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE }}
         run: |
-          UNSIGNED=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
-          cp "$UNSIGNED" "app/build/outputs/apk/release/hibana-${{ needs.extract-tag.outputs.tag }}-unsigned.apk"
+          # Written outside the workspace so it can never be picked up by an
+          # artifact upload or left behind in the checkout.
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/hibana-release.jks"
+          echo "SIGNING_STORE_FILE=$RUNNER_TEMP/hibana-release.jks" >> "$GITHUB_ENV"
+
+      # Gradle signs during assembleRelease using the signingConfig, so the APK
+      # is zipaligned and v1/v2/v3-signed in one step. versionName follows the
+      # tag so the installed app reports what was shipped.
+      - name: Build signed release APK
+        env:
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+        run: |
+          gradle :app:assembleRelease --stacktrace \
+            -PversionName=${{ needs.extract-tag.outputs.version }}
+
+      - name: Verify the APK is signed
+        run: |
+          BUILD_TOOLS=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          # Proves the artifact is actually signed rather than merely built.
+          "$BUILD_TOOLS/apksigner" verify --print-certs "$APK"
+          mv "$APK" "app/build/outputs/apk/release/hibana-${{ needs.extract-tag.outputs.tag }}.apk"
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/hibana-release.jks"
 
       - name: Upload APK
         uses: actions/upload-artifact@v6

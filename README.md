@@ -1,159 +1,180 @@
 # Hibana 話
 
-![Project Screenshot](Logo_1.png)
+![Hibana](Logo_1.png)
 
-**Manga • Anime • Novels — a story told by lamplight.**
+**Manga • Manhwa • Manhua • Web Novels — a story told by lamplight.**
 
-Hibana is a free, Mihon-style **web-novel / light-novel reader** for Android,
-written in Kotlin + Jetpack Compose, with a warm amber-on-deep-navy "lamplight" theme (灯 lamplight + 話 story).
-First milestone targets Android; a Windows build is a later phase (see *Roadmap*).
+Hibana is a free, open-source reader for Android, written in Kotlin and Jetpack
+Compose. The name is a coined compound — 灯 *lamplight* + 話 *story/episode* — and
+話 doubles as "chapter" across manga and web novels.
 
-Core features in this scaffold:
+It reads **comics** (manga, manhwa, manhua) and **web/light novels** from
+third-party extensions, and it runs extensions from **four ecosystems at once**:
+Mihon/Tachiyomi, Manatan, IReader, and LNReader.
 
-- **Library** with reading progress and resume-where-you-left-off
-- **Reader** with font size, line spacing, font family, and 5 themes (light, dark, sepia, black/OLED, system)
-- **Text-to-speech** — read chapters aloud with play/pause/skip, speed & pitch, paragraph highlight + auto-scroll, foreground playback service
-- **Offline downloads** — chapters saved to app storage and read without network
-- **Pluggable source/extension system** — Mihon-style `Source` contract, a built-in Project Gutenberg source, and adapters for third-party extension ecosystems
+> **Anime is not part of this app.** Video playback is a possible future phase of
+> the wider project, not a goal of this codebase.
 
 ---
 
-## Build & run
+## Features
 
-Requires **Android Studio (Koala/2024.1+)** and **JDK 17**.
+**Library**
+- Categories (custom shelves) with tabs, plus per-entry assignment
+- Tri-state filters (downloaded / unread / started) — off, only, or exclude
+- Sort by title, total chapters, unread count, latest chapter, date added, random
+- Comfortable grid, compact grid, or list, with unread/downloaded cover badges
+- Long-press multi-select for batch actions
 
-1. Open the project folder in Android Studio (it will use the Gradle version
-   catalog in `gradle/libs.versions.toml`).
-2. Let it sync, then Run on a device/emulator (min SDK 24, target 34).
+**Reading**
+- Text reader with font size, line spacing, font family, and 5 themes
+- Comic reader with five page layouts: webtoon (continuous), gapped vertical
+  strip, paged left-to-right, **paged right-to-left** (Japanese manga), and paged
+  vertical (e-reader style)
+- In-reader settings overlay so type and layout are adjusted while reading
+- Missing-chapter detection from chapter numbering, plus upload dates
 
-Command line (once a Gradle wrapper is generated):
+**Text-to-speech and translation**
+- Reads novel chapters aloud — play/pause/skip, speed, pitch, paragraph
+  highlighting and auto-scroll, with a foreground playback service
+- Reads **comics** aloud too, via on-device OCR (ML Kit: Latin, Japanese, Korean,
+  Chinese). Panel order is corrected per script, so right-to-left Japanese pages
+  narrate in reading order rather than detection order
+- On-device translation into **English or Hindi**
+- Narration language: English or Hindi
+
+**Sources and extensions**
+- Four ecosystems supported side by side:
+  - **Mihon / Tachiyomi** and **Manatan** — APK extensions, via a bundled
+    `eu.kanade.tachiyomi` source-api runtime
+  - **IReader** — APK extensions, against the published `io.github.ireaderorg:source-api`
+  - **LNReader** — JavaScript plugins, executed on Rhino (plugins compile to ES5,
+    so no NDK or per-ABI splits are needed)
+- **Extension stores**: add any repository index URL, including custom and
+  self-hosted ones. Both `index.min.json` (Mihon-style) and `plugins.min.json`
+  (LNReader) are detected automatically
+- Update detection, language filtering, and per-source browsing (Popular/Latest)
+- **Trust model**: APK extensions run in-process, so they are not loaded until
+  you approve them. Trust is keyed on package **plus signing certificate**, so an
+  update re-signed by someone else must be approved again
+
+**Discovery**
+- Global search across every installed source, results grouped per source, each
+  group appearing as soon as that source responds
+- Browse split into **Sources | Extensions | Migrate**
+
+**Source migration**
+- Move entries when a source breaks or falls behind — one title, several, or an
+  entire source at once
+- Candidates are matched by normalised title plus author, scored and shown with a
+  chapter-count comparison; nothing moves until you confirm
+- Reading progress is re-matched **by chapter number**, so it survives the move
+- Search all sources, or restrict to a chosen subset
+
+**Library upkeep**
+- Updates tab with newest chapters across the library
+- Scheduled updates: manual, 6h, 12h, 24h, alternate day, weekly (day + time), or
+  monthly (date + time)
+- Download manager with queue, retry, and delete
+- **Backup and restore in Mihon's `.tachibk` format** — a Hibana backup restores
+  into Mihon, and a Mihon backup restores into Hibana
+
+---
+
+## Build
+
+Requires **JDK 17** and the Android SDK (Android Studio Ladybug or newer).
 
 ```bash
-gradle wrapper --gradle-version 8.9   # first time, to create ./gradlew
+gradle wrapper --gradle-version 8.11.1   # first time, to create ./gradlew
 ./gradlew :app:assembleDebug
 ./gradlew :app:installDebug
 ```
 
-> The binary `gradle/wrapper/gradle-wrapper.jar` is not checked in (it's a
-> binary blob); `gradle wrapper` regenerates it. Android Studio does this
-> automatically on first sync.
+The binary `gradle/wrapper/gradle-wrapper.jar` is intentionally not committed;
+`gradle wrapper` regenerates it, and Android Studio does so on first sync.
 
-On first launch the **Browse** tab already lists real, public-domain books via
-Project Gutenberg — add one to your library and open it to try the reader + TTS
-immediately, no extensions required.
-
----
-
-## Architecture
-
-Single Gradle module, MVVM, manual DI (no Hilt/Dagger) via `AppContainer`.
-
-```
-NovelReaderApp ── AppContainer (DI: db, http, sources, repos, downloader, TTS, loaders)
-                     │
- ui/  Compose + ViewModels ── MVVM
-   RootNav                     bottom nav: Library · Browse · Settings, + Reader route
-   screens/                    LibraryScreen, BrowseScreen, ReaderScreen, SettingsScreen
-   theme/                      Material 3 + dedicated reader palettes (sepia/black)
-                     │
- data/                         Room (novels, chapters), LibraryRepository, SettingsRepository (DataStore)
- source/                       Source contract, HttpSource base, SourceManager, builtin/GutenbergSource
- extension/                    ExtensionLoader + per-ecosystem adapters
- download/                     Downloader (chapter text → local files)
- tts/                          TtsManager (engine) + TtsService (foreground playback)
-```
-
-Design decisions worth noting:
-
-- The `Source` interface is deliberately small and Mihon-shaped so extensions
-  are easy to author and so third-party extensions can be adapted onto it.
-- Read/download state lives on the `chapters` table — one source of truth shared
-  by library, reader, and downloader.
-- TTS runs paragraph-by-paragraph, exposing the spoken index so the reader can
-  auto-scroll and highlight in sync (accessibility + follow-along).
+| | |
+|---|---|
+| minSdk | 26 — the floor declared by `io.github.ireaderorg:source-api-android` |
+| targetSdk | 34 |
+| compileSdk | 36 — required by `androidx.core` 1.17 |
+| Kotlin | 2.2.21 (matches what IReader extensions are built against) |
+| Gradle / AGP | 8.11.1 / 8.9.1 |
 
 ---
 
-## Extension compatibility (Mihon / IReader / LNReader / Manatan)
+## Releases and signing
 
-**Goal:** interoperate with extensions from these four apps. They do **not**
-share an extension format, so the app uses one adapter per ecosystem behind a
-common `ExtensionLoader` → `Source` seam. Honest status:
+Releases are **signed**. Android ties app identity to the signing key: an update
+signed by a different key is rejected, so the key must stay stable and private.
 
-| Ecosystem | Packaging | Language | Content | Adapter status |
-|-----------|-----------|----------|---------|----------------|
-| **Mihon / Tachiyomi** | APK (installed package) | Kotlin | **Manga/images** | `ApkExtensionLoader` — discovery implemented (scans `tachiyomi.extension` metadata); DexClassLoader + API-shim wiring remaining. Note: returns image pages, not novel text. |
-| **IReader** | APK | Kotlin | Novels (text) | **Implemented** — `IReaderExtensionLoader` (feature-scan + read-only DexClassLoader + `Dependencies` constructor, a faithful port of IReader's `AndroidCatalogLoader`) and `IReaderSourceAdapter` (reflective bridge over `CatalogSource`). One activation step remains: bundle IReader's `source-api` + set `IReaderRuntime.dependencyFactory` (see below). |
-| **LNReader** | `.js` plugins from a repo | JavaScript | Novels (text) | `LNReaderLoader` — architecture + `Source` bridge defined; needs an embedded JS engine (QuickJS recommended) with `fetch`/DOM shims. |
-| **Manatan** | APK | Kotlin | Manga | `ApkExtensionLoader(MANATAN)` — same path as Mihon. |
+### One-time setup
 
-What "remaining" means concretely:
+Create a keystore and keep it somewhere safe and backed up:
 
-- **APK ecosystems:** load the extension APK with a `DexClassLoader`, resolve the
-  declared source/factory class from the package `<meta-data>`, and map that
-  ecosystem's native `Source`/`HttpSource` onto our `Source`. Each needs thin
-  compile-only shim interfaces matching its API package (e.g.
-  `eu.kanade.tachiyomi.source.*`) so the extension's dex resolves at runtime.
-- **LNReader:** add a JS engine dependency (e.g. `quickjs-android`), implement
-  `JsRuntime`/`JsPluginHandle` in `LNReaderLoader.kt`, and marshal JS objects to
-  our data classes.
+```bash
+keytool -genkeypair -v -keystore hibana-release.jks -alias hibana \
+        -keyalg RSA -keysize 4096 -validity 10000
+```
 
-The reference sources you provided — `mihon-0.20.1.zip`, `IReader-2.0.23.zip`,
-`Manatan-6.0.64.zip` — are the authoritative APIs to build each adapter against.
+> **If this file is lost, no future build can update an already-installed
+> Hibana.** The only remedy is uninstall and reinstall, which loses local data.
+> Back it up before shipping anything.
 
-### Activating IReader extensions
+**Local signed builds** — copy `keystore.properties.example` to
+`keystore.properties` and fill it in. Both the keystore and that file are
+gitignored.
 
-The loader/adapter are done and compile standalone (via reflection, so the app
-has no compile-time coupling to IReader). To run real IReader extension APKs,
-the host must expose the API those extensions were compiled against:
+**CI** — add four repository secrets under *Settings → Secrets and variables →
+Actions*:
 
-1. Add IReader's `source-api` (`ireader.core.source.*`) to the app — either its
-   published artifact or by vendoring `IReader-2.0.23/source-api` as a Gradle
-   module. This also pulls Ktor + Ksoup, which IReader sources use.
-2. Provide concrete `HttpClientsInterface` + `PreferenceStore` implementations
-   and wire them once at startup:
+| Secret | Value |
+|---|---|
+| `SIGNING_KEYSTORE` | base64 of the `.jks` — `base64 -w0 hibana-release.jks` (macOS: `base64 -i`) |
+| `SIGNING_KEY_ALIAS` | the alias, e.g. `hibana` |
+| `SIGNING_KEY_PASSWORD` | key password |
+| `SIGNING_STORE_PASSWORD` | keystore password |
 
-   ```kotlin
-   IReaderRuntime.dependencyFactory = { ctx, pkgName ->
-       ireader.core.source.Dependencies(httpClients, preferenceStore)
-   }
-   ```
+### Cutting a release
 
-Until step 2 runs, `IReaderRuntime.isAvailable()` is false and the loader fails
-fast with a clear message instead of crashing. Discovery (listing installed
-IReader extensions) works regardless.
+```bash
+git tag v0.2.0
+git push --tags
+```
 
-**Important caveat:** Mihon and Manatan extensions are for **manga** and return
-image page URLs, not text — they're usable for manga/webtoon reading but won't
-feed the novel reader/TTS. For text novels, IReader and LNReader are the right
-ecosystems.
+`release.yml` then extracts the tag, builds a signed APK with `versionName` taken
+from the tag, verifies the signature with `apksigner`, and publishes a GitHub
+Release with the APK attached. The workflow **fails loudly if the secrets are
+missing** rather than quietly producing an unsigned build.
 
 ---
 
-## Adding a built-in source
+## Workflows
 
-Implement `Source` (or extend `HttpSource`) and register it in
-`AppContainer.init`:
-
-```kotlin
-sourceManager.register(MyNovelSource(httpClient))
-```
-
-`GutenbergSource` is a complete, working reference.
+| Workflow | Trigger | Purpose |
+|---|---|---|
+| `build.yml` | push, PR | Assemble, unit tests, lint; uploads the debug APK and reports |
+| `release.yml` | `v*` tag | Signed release APK, verified, attached to a GitHub Release |
 
 ---
 
 ## Roadmap
 
-- Novel detail screen (chapter list, mark-read, per-chapter download queue)
-- Extension install/repo UI + finish the four adapters
-- WorkManager-backed download queue with retries and notifications
-- Library categories, sorting/filtering, backup/restore
-- **Windows build** via Kotlin Multiplatform / Compose Multiplatform, sharing the
-  `data`, `source`, `download`, and (non-Android) TTS logic
+- Separate Manga and Novel sections, with their own settings
+- Import Manatan `.manatanbk` backups
+- AniList / MyAnimeList progress tracking
+- Windows desktop build
+- Anime support — a possible later phase of the wider project, out of scope here
 
-## Legality
+---
 
-The app ships **no copyrighted content**. The built-in source is public-domain
-(Project Gutenberg). Third-party extensions are installed by the user and are
-their responsibility, exactly as in Mihon.
+## Acknowledgements
+
+Hibana interoperates with formats and extension APIs from
+[Mihon](https://github.com/mihonapp/mihon),
+[IReader](https://github.com/IReaderorg/IReader),
+[LNReader](https://github.com/lnreader/lnreader), and
+[Manatan](https://github.com/KolbyML/Manatan). Those projects' extension
+ecosystems make this app useful; the compatibility layers here are written
+against their public APIs.

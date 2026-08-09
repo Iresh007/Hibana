@@ -9,7 +9,13 @@
 .cxx/
 /app/build/
 *.apk
+
+# Release signing. The key is the app's permanent identity — anyone holding it
+# can ship updates that users' devices accept as genuine, so it never enters
+# version control. CI gets it from repository secrets instead.
 *.keystore
+*.jks
+/keystore.properties
 
 # Large third-party reference sources (kept locally for adapter work, not committed)
 /mihon-*.zip
