@@ -75,6 +75,29 @@ class TranslationManager {
         }
     }
 
+    /**
+     * Pre-fetches every source→target model pair so translation works instantly
+     * and offline later.
+     *
+     * ML Kit does not ship translation models inside the APK — unlike text
+     * recognition, Google distributes them on demand only — so "bundling" them
+     * means downloading up front rather than on first use. Reports progress
+     * because this pulls several packs (~30MB each).
+     */
+    suspend fun preloadAll(
+        targetCode: String,
+        requireWifi: Boolean = true,
+        onProgress: (done: Int, total: Int, language: String) -> Unit = { _, _, _ -> },
+    ): Int {
+        val sources = TranslateSource.entries.filter { it.mlKitCode != targetCode }
+        var ready = 0
+        sources.forEachIndexed { index, source ->
+            if (ensureModel(source, targetCode, requireWifi)) ready++
+            onProgress(index + 1, sources.size, source.label)
+        }
+        return ready
+    }
+
     /** Maps the OCR script onto the matching translation source language. */
     fun sourceFor(script: OcrScript): TranslateSource = when (script) {
         OcrScript.JAPANESE -> TranslateSource.JAPANESE

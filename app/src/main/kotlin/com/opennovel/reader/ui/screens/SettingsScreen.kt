@@ -34,6 +34,7 @@ import com.opennovel.reader.data.ReadingMode
 import com.opennovel.reader.data.SpeechLanguage
 import com.opennovel.reader.data.ThemeMode
 import com.opennovel.reader.data.TranslateLanguage
+import com.opennovel.reader.data.UpdateSchedule
 import com.opennovel.reader.ui.BackupViewModel
 import com.opennovel.reader.ui.SettingsViewModel
 
@@ -130,6 +131,56 @@ fun SettingsScreen(factory: ViewModelProvider.Factory) {
             }
         }
 
+        Section("Library updates") {
+            Text(
+                "How often Hibana checks your library's sources for new chapters.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            UpdateSchedule.entries.forEach { option ->
+                Row(
+                    Modifier.fillMaxWidth().clickableMinTouch { vm.setUpdateSchedule(option) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = s.updateSchedule == option, onClick = null)
+                    Text(option.label, Modifier.padding(start = 8.dp))
+                }
+            }
+            if (s.updateSchedule != UpdateSchedule.MANUAL) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Only on Wi-Fi", Modifier.weight(1f))
+                    Switch(checked = s.updateOnWifiOnly, onCheckedChange = { vm.setUpdateOnWifiOnly(it) })
+                }
+            }
+            if (s.updateSchedule == UpdateSchedule.WEEKLY || s.updateSchedule == UpdateSchedule.MONTHLY) {
+                Text(
+                    "Runs at %02d:%02d".format(s.updateHour, s.updateMinute),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                LabeledSlider("Hour", s.updateHour.toFloat(), 0f..23f) {
+                    vm.setUpdateTime(it.toInt(), s.updateMinute)
+                }
+                if (s.updateSchedule == UpdateSchedule.WEEKLY) {
+                    Text("Day of week", style = MaterialTheme.typography.bodyMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+                            .forEachIndexed { index, day ->
+                                FilterChip(
+                                    selected = s.updateDayOfWeek == index + 1,
+                                    onClick = { vm.setUpdateDayOfWeek(index + 1) },
+                                    label = { Text(day) },
+                                )
+                            }
+                    }
+                } else {
+                    // Capped at 28 so the date exists in every month.
+                    LabeledSlider("Day of month", s.updateDayOfMonth.toFloat(), 1f..28f) {
+                        vm.setUpdateDayOfMonth(it.toInt())
+                    }
+                }
+            }
+        }
+
         Section("Translation") {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text("Translate chapters", Modifier.weight(1f))
@@ -149,6 +200,15 @@ fun SettingsScreen(factory: ViewModelProvider.Factory) {
                         label = { Text(lang.label) },
                     )
                 }
+            }
+            // ML Kit ships no bundled translation models, so the nearest thing to
+            // shipping them is fetching everything up front.
+            val packStatus by vm.packStatus.collectAsStateWithLifecycle()
+            OutlinedButton(onClick = vm::downloadTranslationPacks) {
+                Text("Download all language packs now")
+            }
+            packStatus?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
             }
         }
 
@@ -235,4 +295,5 @@ private fun LabeledSlider(
         Slider(value = value, onValueChange = onChange, valueRange = range)
     }
 }
+
 

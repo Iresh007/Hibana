@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +36,7 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +47,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.opennovel.reader.data.ChapterGap
+import com.opennovel.reader.data.findChapterGaps
 import com.opennovel.reader.data.db.ChapterEntity
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.ui.NovelDetailViewModel
@@ -62,6 +67,9 @@ fun NovelDetailScreen(
     val novel by vm.novel.collectAsStateWithLifecycle()
     val chapters by vm.chapters.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
+
+    // Recomputed only when the chapter list changes, not on every recomposition.
+    val gaps = remember(chapters) { findChapterGaps(chapters) }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -109,6 +117,8 @@ fun NovelDetailScreen(
                 }
             }
             items(chapters, key = { it.id }) { chapter ->
+                // Warn before the chapter that follows a numbering gap.
+                gaps[chapter.id]?.let { gap -> MissingChaptersDivider(gap) }
                 ChapterRow(
                     chapter = chapter,
                     onOpen = { onOpenChapter(chapter.id) },
@@ -187,6 +197,26 @@ private fun NovelHeader(novel: NovelEntity, onToggleLibrary: () -> Unit) {
     }
 }
 
+/** Marks chapters the source never listed, so a jump isn't mistaken for a bug. */
+@Composable
+private fun MissingChaptersDivider(gap: ChapterGap) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+        Text(
+            gap.label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+            modifier = Modifier.padding(horizontal = 8.dp),
+        )
+        HorizontalDivider(Modifier.weight(1f), color = MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChapterRow(
@@ -198,23 +228,35 @@ private fun ChapterRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .height(56.dp)
+            .heightIn(min = 60.dp)
             .combinedClickable(onClick = onOpen, onLongClick = onToggleRead)
-            .padding(horizontal = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
-            chapter.name,
-            style = MaterialTheme.typography.bodyLarge,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            color = if (chapter.read) {
-                MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            },
-            modifier = Modifier.weight(1f),
-        )
+        Column(Modifier.weight(1f)) {
+            Text(
+                chapter.name,
+                style = MaterialTheme.typography.bodyLarge,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                color = if (chapter.read) {
+                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+            )
+            val meta = buildList {
+                chapter.dateUpload.takeIf { it > 0 }?.let { add(formatUploadDate(it)) }
+                if (chapter.downloaded) add("Downloaded")
+            }
+            if (meta.isNotEmpty()) {
+                Text(
+                    meta.joinToString(" · "),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                )
+            }
+        }
         IconButton(onClick = onDownload, enabled = !chapter.downloaded) {
             Icon(
                 if (chapter.downloaded) Icons.Filled.DownloadDone else Icons.Filled.Download,
@@ -223,3 +265,16 @@ private fun ChapterRow(
         }
     }
 }
+
+/** Recent uploads read better as "2 days ago"; older ones as a date. */
+private fun formatUploadDate(millis: Long): String {
+    val days = ((System.currentTimeMillis() - millis) / 86_400_000L).toInt()
+    return when {
+        days <= 0 -> "Today"
+        days == 1 -> "Yesterday"
+        days < 30 -> "$days days ago"
+        else -> java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
+            .format(java.util.Date(millis))
+    }
+}
+

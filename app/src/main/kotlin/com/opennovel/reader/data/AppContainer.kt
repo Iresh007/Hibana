@@ -20,6 +20,9 @@ import java.util.concurrent.TimeUnit
  */
 class AppContainer(context: Context) {
 
+    /** Application context, for components that schedule background work. */
+    val appContext: Context = context.applicationContext
+
     val httpClient: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -91,4 +94,5 @@ class AppContainer(context: Context) {
     /** Scan installed Mihon/Manatan/IReader extensions and register their sources. */
     suspend fun loadInstalledExtensions() = extensionManager.loadInstalled()
 }
+
 

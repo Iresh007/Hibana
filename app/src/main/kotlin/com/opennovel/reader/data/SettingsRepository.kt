@@ -33,7 +33,34 @@ data class ReaderSettings(
     /** Translate recognised/【novel】text before displaying or speaking it. */
     val translateEnabled: Boolean = false,
     val translateTarget: TranslateLanguage = TranslateLanguage.ENGLISH,
+    /** How often the library checks sources for new chapters. */
+    val updateSchedule: UpdateSchedule = UpdateSchedule.MANUAL,
+    /** Hour of day (0-23) for schedules that run at a fixed time. */
+    val updateHour: Int = 3,
+    val updateMinute: Int = 0,
+    /** Day of week (1=Mon..7=Sun) for [UpdateSchedule.WEEKLY]. */
+    val updateDayOfWeek: Int = 1,
+    /** Day of month (1-28) for [UpdateSchedule.MONTHLY]. */
+    val updateDayOfMonth: Int = 1,
+    /** Only run scheduled updates on unmetered networks. */
+    val updateOnWifiOnly: Boolean = true,
 )
+
+/**
+ * Library update cadence. WorkManager enforces a 15-minute floor on periodic
+ * work, so every interval here is comfortably above it. Schedules with a fixed
+ * time are implemented as one-shot work that reschedules itself, since periodic
+ * work cannot guarantee a wall-clock time.
+ */
+enum class UpdateSchedule(val label: String) {
+    MANUAL("Only when I refresh"),
+    EVERY_6_HOURS("Every 6 hours"),
+    EVERY_12_HOURS("Every 12 hours"),
+    DAILY("Every 24 hours"),
+    ALTERNATE_DAY("Every other day"),
+    WEEKLY("Weekly (pick day and time)"),
+    MONTHLY("Monthly (pick date and time)"),
+}
 
 enum class ThemeMode { LIGHT, DARK, SYSTEM, SEPIA, BLACK }
 
@@ -86,6 +113,12 @@ class SettingsRepository(private val context: Context) {
             ttsLanguage = enumOr(p[TTS_LANGUAGE], SpeechLanguage.ENGLISH),
             translateEnabled = p[TRANSLATE_ENABLED] ?: false,
             translateTarget = enumOr(p[TRANSLATE_TARGET], TranslateLanguage.ENGLISH),
+            updateSchedule = enumOr(p[UPDATE_SCHEDULE], UpdateSchedule.MANUAL),
+            updateHour = p[UPDATE_HOUR] ?: 3,
+            updateMinute = p[UPDATE_MINUTE] ?: 0,
+            updateDayOfWeek = p[UPDATE_DOW] ?: 1,
+            updateDayOfMonth = p[UPDATE_DOM] ?: 1,
+            updateOnWifiOnly = p[UPDATE_WIFI_ONLY] ?: true,
         )
     }
 
@@ -106,6 +139,14 @@ class SettingsRepository(private val context: Context) {
     suspend fun setTtsLanguage(v: SpeechLanguage) = edit { it[TTS_LANGUAGE] = v.name }
     suspend fun setTranslateEnabled(v: Boolean) = edit { it[TRANSLATE_ENABLED] = v }
     suspend fun setTranslateTarget(v: TranslateLanguage) = edit { it[TRANSLATE_TARGET] = v.name }
+    suspend fun setUpdateSchedule(v: UpdateSchedule) = edit { it[UPDATE_SCHEDULE] = v.name }
+    suspend fun setUpdateTime(hour: Int, minute: Int) = edit {
+        it[UPDATE_HOUR] = hour.coerceIn(0, 23); it[UPDATE_MINUTE] = minute.coerceIn(0, 59)
+    }
+    suspend fun setUpdateDayOfWeek(v: Int) = edit { it[UPDATE_DOW] = v.coerceIn(1, 7) }
+    // Capped at 28 so every month has the date.
+    suspend fun setUpdateDayOfMonth(v: Int) = edit { it[UPDATE_DOM] = v.coerceIn(1, 28) }
+    suspend fun setUpdateOnWifiOnly(v: Boolean) = edit { it[UPDATE_WIFI_ONLY] = v }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
@@ -125,6 +166,12 @@ class SettingsRepository(private val context: Context) {
         val TTS_LANGUAGE = stringPreferencesKey("tts_language")
         val TRANSLATE_ENABLED = booleanPreferencesKey("translate_enabled")
         val TRANSLATE_TARGET = stringPreferencesKey("translate_target")
+        val UPDATE_SCHEDULE = stringPreferencesKey("update_schedule")
+        val UPDATE_HOUR = intPreferencesKey("update_hour")
+        val UPDATE_MINUTE = intPreferencesKey("update_minute")
+        val UPDATE_DOW = intPreferencesKey("update_day_of_week")
+        val UPDATE_DOM = intPreferencesKey("update_day_of_month")
+        val UPDATE_WIFI_ONLY = booleanPreferencesKey("update_wifi_only")
 
         @Suppress("unused") val UNUSED_INT = intPreferencesKey("reserved")
     }

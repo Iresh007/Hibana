@@ -27,6 +27,11 @@ class NovelReaderApp : Application() {
         // Discover + register installed Mihon/Manatan/IReader extensions off the main thread.
         CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
             runCatching { container.loadInstalledExtensions() }
+            // Re-arm scheduled library updates; WorkManager keeps them across
+            // reboots, but re-applying keeps the schedule in sync with settings.
+            runCatching {
+                com.opennovel.reader.update.UpdateScheduler.apply(this@NovelReaderApp, container.settingsRepository)
+            }
         }
     }
 

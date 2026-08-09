@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,7 +48,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(NovelDetailViewModel::class.java) ->
             NovelDetailViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
-            SettingsViewModel(c.settingsRepository)
+            SettingsViewModel(c.settingsRepository, c.appContext, c.translationManager)
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
             BackupViewModel(c.backupManager)
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
@@ -467,7 +468,42 @@ class BackupViewModel(private val backup: com.opennovel.reader.backup.BackupMana
     fun clearStatus() { _status.value = null }
 }
 
-class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
+class SettingsViewModel(
+    private val repo: SettingsRepository,
+    private val appContext: android.content.Context,
+    private val translator: com.opennovel.reader.tts.TranslationManager,
+) : ViewModel() {
+
+    /** Progress text while translation packs pre-download, else null. */
+    private val _packStatus = MutableStateFlow<String?>(null)
+    val packStatus: StateFlow<String?> = _packStatus.asStateFlow()
+
+    /**
+     * Fetches every translation model up front.
+     *
+     * ML Kit has no bundled translation artifact — models are download-only — so
+     * this is the closest equivalent to shipping them: pull them once, then
+     * translation works offline and instantly.
+     */
+    fun downloadTranslationPacks() {
+        viewModelScope.launch {
+            val target = repo.settings.first().translateTarget.code
+            _packStatus.value = "Starting…"
+            val ready = translator.preloadAll(target, requireWifi = false) { done, total, language ->
+                _packStatus.value = "Downloading $language ($done/$total)"
+            }
+            _packStatus.value = if (ready > 0) "$ready language packs ready" else "Download failed"
+        }
+    }
+
+    /** Re-applies WorkManager scheduling whenever the cadence changes. */
+    private fun rescheduleUpdates() {
+        viewModelScope.launch {
+            runCatching {
+                com.opennovel.reader.update.UpdateScheduler.apply(appContext, repo)
+            }
+        }
+    }
     val settings: StateFlow<ReaderSettings> =
         repo.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
 
@@ -483,6 +519,11 @@ class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
     fun setTtsLanguage(v: com.opennovel.reader.data.SpeechLanguage) = viewModelScope.launch { repo.setTtsLanguage(v) }
     fun setTranslateEnabled(v: Boolean) = viewModelScope.launch { repo.setTranslateEnabled(v) }
     fun setTranslateTarget(v: com.opennovel.reader.data.TranslateLanguage) = viewModelScope.launch { repo.setTranslateTarget(v) }
+    fun setUpdateSchedule(v: com.opennovel.reader.data.UpdateSchedule) = viewModelScope.launch { repo.setUpdateSchedule(v); rescheduleUpdates() }
+    fun setUpdateTime(hour: Int, minute: Int) = viewModelScope.launch { repo.setUpdateTime(hour, minute); rescheduleUpdates() }
+    fun setUpdateDayOfWeek(v: Int) = viewModelScope.launch { repo.setUpdateDayOfWeek(v); rescheduleUpdates() }
+    fun setUpdateDayOfMonth(v: Int) = viewModelScope.launch { repo.setUpdateDayOfMonth(v); rescheduleUpdates() }
+    fun setUpdateOnWifiOnly(v: Boolean) = viewModelScope.launch { repo.setUpdateOnWifiOnly(v); rescheduleUpdates() }
 }
 
 class ReaderViewModel(
@@ -652,5 +693,6 @@ class ReaderViewModel(
 
     override fun onCleared() { tts.stop() }
 }
+
 
 

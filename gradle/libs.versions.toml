@@ -25,6 +25,7 @@ ktor = "3.3.2"
 ksoup = "0.2.6"
 kotlinxDatetime = "0.7.1"
 rhino = "1.7.15"
+work = "2.10.0"
 
 [libraries]
 androidx-preference = { group = "androidx.preference", name = "preference-ktx", version.ref = "preference" }
@@ -78,6 +79,8 @@ mlkit-text-chinese = { group = "com.google.mlkit", name = "text-recognition-chin
 # On-device translation. Language packs download at runtime (~30MB each), so
 # this adds little to the APK unlike the bundled OCR models.
 mlkit-translate = { group = "com.google.mlkit", name = "translate", version = "17.0.3" }
+# Scheduled library updates survive process death and reboot.
+androidx-work = { group = "androidx.work", name = "work-runtime-ktx", version.ref = "work" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
