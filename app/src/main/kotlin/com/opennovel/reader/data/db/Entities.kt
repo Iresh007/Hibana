@@ -130,6 +130,22 @@ data class NovelCategoryCrossRef(
     val categoryId: Long,
 )
 
+/**
+ * A chapter joined with its novel, for the Updates feed and download queue —
+ * both need the novel's title/cover alongside chapter fields.
+ */
+data class ChapterWithNovel(
+    val chapterId: Long,
+    val novelId: Long,
+    val name: String,
+    val url: String,
+    val read: Boolean,
+    val downloaded: Boolean,
+    val dateUpload: Long,
+    val novelTitle: String,
+    val coverUrl: String?,
+)
+
 /** Denormalized history row joined with its novel + chapter, for display. */
 data class HistoryWithNovel(
     val novelId: Long,

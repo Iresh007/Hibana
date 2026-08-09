@@ -4,9 +4,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material.icons.filled.NewReleases
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -23,23 +23,31 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.opennovel.reader.ui.screens.BrowseScreen
+import com.opennovel.reader.ui.screens.DownloadsScreen
 import com.opennovel.reader.ui.screens.ExtensionsScreen
 import com.opennovel.reader.ui.screens.HistoryScreen
 import com.opennovel.reader.ui.screens.LibraryScreen
+import com.opennovel.reader.ui.screens.MoreScreen
 import com.opennovel.reader.ui.screens.NovelDetailScreen
 import com.opennovel.reader.ui.screens.ReaderScreen
 import com.opennovel.reader.ui.screens.SettingsScreen
+import com.opennovel.reader.ui.screens.UpdatesScreen
 
+/**
+ * Bottom-tab layout mirrors Mihon's: Library, Updates, History, Browse, More.
+ * Five is the practical maximum before labels truncate, so the less-frequent
+ * destinations (Extensions, Downloads, Settings) live behind More.
+ */
 private sealed class Dest(val route: String, val label: String) {
     data object Library : Dest("library", "Library")
+    data object Updates : Dest("updates", "Updates")
     data object History : Dest("history", "History")
     data object Browse : Dest("browse", "Browse")
-    data object Extensions : Dest("extensions", "Extensions")
-    data object Settings : Dest("settings", "Settings")
+    data object More : Dest("more", "More")
 }
 
 private val bottomDests =
-    listOf(Dest.Library, Dest.History, Dest.Browse, Dest.Extensions, Dest.Settings)
+    listOf(Dest.Library, Dest.Updates, Dest.History, Dest.Browse, Dest.More)
 
 @Composable
 fun RootNav(factory: ViewModelProvider.Factory) {
@@ -67,10 +75,10 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                                 Icon(
                                     when (dest) {
                                         Dest.Library -> Icons.AutoMirrored.Filled.MenuBook
+                                        Dest.Updates -> Icons.Filled.NewReleases
                                         Dest.History -> Icons.Filled.History
                                         Dest.Browse -> Icons.Filled.Explore
-                                        Dest.Extensions -> Icons.Filled.Extension
-                                        Dest.Settings -> Icons.Filled.Settings
+                                        Dest.More -> Icons.Filled.MoreHoriz
                                     },
                                     contentDescription = dest.label,
                                 )
@@ -93,6 +101,12 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
                 )
             }
+            composable(Dest.Updates.route) {
+                UpdatesScreen(
+                    factory = factory,
+                    onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+                )
+            }
             composable(Dest.History.route) {
                 HistoryScreen(
                     factory = factory,
@@ -105,6 +119,21 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
                 )
             }
+            composable(Dest.More.route) {
+                MoreScreen(
+                    onOpenExtensions = { nav.navigate("extensions") },
+                    onOpenDownloads = { nav.navigate("downloads") },
+                    onOpenSettings = { nav.navigate("settings") },
+                )
+            }
+            composable("extensions") { ExtensionsScreen(factory = factory) }
+            composable("downloads") {
+                DownloadsScreen(
+                    factory = factory,
+                    onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+                )
+            }
+            composable("settings") { SettingsScreen(factory = factory) }
             composable("novel/{novelId}") { entry ->
                 val id = entry.arguments?.getString("novelId")?.toLongOrNull() ?: return@composable
                 NovelDetailScreen(
@@ -114,12 +143,6 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     onBack = { nav.popBackStack() },
                 )
             }
-            composable(Dest.Extensions.route) {
-                ExtensionsScreen(factory = factory)
-            }
-            composable(Dest.Settings.route) {
-                SettingsScreen(factory = factory)
-            }
             composable("reader/{chapterId}") { entry ->
                 val id = entry.arguments?.getString("chapterId")?.toLongOrNull() ?: return@composable
                 ReaderScreen(chapterId = id, factory = factory, onBack = { nav.popBackStack() })
@@ -127,4 +150,3 @@ fun RootNav(factory: ViewModelProvider.Factory) {
         }
     }
 }
-

@@ -67,6 +67,41 @@ interface ChapterDao {
 
     @Query("UPDATE chapters SET downloaded = :downloaded, downloadPath = :path WHERE id = :id")
     suspend fun setDownloadState(id: Long, downloaded: Boolean, path: String?)
+
+    /**
+     * Recent chapters across the whole library, newest first — the Updates feed.
+     * Restricted to library novels so browsing doesn't pollute it.
+     */
+    @Query(
+        """
+        SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
+               c.read AS read, c.downloaded AS downloaded, c.dateUpload AS dateUpload,
+               n.title AS novelTitle, n.coverUrl AS coverUrl
+        FROM chapters c
+        JOIN novels n ON n.id = c.novelId
+        WHERE n.inLibrary = 1
+        ORDER BY c.dateUpload DESC, c.id DESC
+        LIMIT 300
+        """,
+    )
+    fun observeRecentChapters(): Flow<List<ChapterWithNovel>>
+
+    /** Chapters already downloaded, for the download manager. */
+    @Query(
+        """
+        SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
+               c.read AS read, c.downloaded AS downloaded, c.dateUpload AS dateUpload,
+               n.title AS novelTitle, n.coverUrl AS coverUrl
+        FROM chapters c
+        JOIN novels n ON n.id = c.novelId
+        WHERE c.downloaded = 1
+        ORDER BY n.title COLLATE NOCASE ASC, c.sourceOrder ASC
+        """,
+    )
+    fun observeDownloaded(): Flow<List<ChapterWithNovel>>
+
+    @Query("SELECT id FROM chapters WHERE novelId = :novelId AND downloaded = 0 ORDER BY sourceOrder ASC")
+    suspend fun undownloadedIds(novelId: Long): List<Long>
 }
 
 @Dao

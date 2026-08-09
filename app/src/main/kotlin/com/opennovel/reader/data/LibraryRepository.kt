@@ -62,6 +62,33 @@ class LibraryRepository(
         categoryIds.forEach { categoryDao.assign(NovelCategoryCrossRef(novelId, it)) }
     }
 
+    // --- updates feed / downloads ---
+
+    /** Newest chapters across the library — the Updates tab. */
+    fun observeRecentChapters(): Flow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
+        chapterDao.observeRecentChapters()
+
+    /** Everything currently downloaded, for the download manager. */
+    fun observeDownloaded(): Flow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
+        chapterDao.observeDownloaded()
+
+    suspend fun undownloadedChapterIds(novelId: Long): List<Long> =
+        chapterDao.undownloadedIds(novelId)
+
+    /**
+     * Refreshes chapters for every library novel. Failures are per-novel so one
+     * dead source can't abort the whole sweep; returns how many succeeded.
+     */
+    suspend fun refreshLibrary(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): Int {
+        val novels = novelDao.getAllInLibrary()
+        var ok = 0
+        novels.forEachIndexed { index, novel ->
+            if (runCatching { refreshChapters(novel.id) }.isSuccess) ok++
+            onProgress(index + 1, novels.size)
+        }
+        return ok
+    }
+
     /** Recently read novels (one row per novel, newest first). */
     fun observeHistory(): Flow<List<HistoryWithNovel>> = historyDao.observeHistory()
 

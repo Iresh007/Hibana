@@ -38,6 +38,10 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
             LibraryViewModel(c.libraryRepository)
         modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
             HistoryViewModel(c.libraryRepository)
+        modelClass.isAssignableFrom(UpdatesViewModel::class.java) ->
+            UpdatesViewModel(c.libraryRepository, c.downloader)
+        modelClass.isAssignableFrom(DownloadsViewModel::class.java) ->
+            DownloadsViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(BrowseViewModel::class.java) ->
             BrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(NovelDetailViewModel::class.java) ->
@@ -129,6 +133,62 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
     fun openNovel(novelId: Long, onResolved: (Long?) -> Unit) {
         viewModelScope.launch { onResolved(repo.resumeChapterId(novelId)) }
     }
+}
+
+/** Newest chapters across the library, with a pull-to-refresh sweep of all sources. */
+class UpdatesViewModel(
+    private val repo: LibraryRepository,
+    private val downloader: Downloader,
+) : ViewModel() {
+
+    val updates: StateFlow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
+        repo.observeRecentChapters()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    /** "12 / 40" while a library sweep runs, so long refreshes show progress. */
+    private val _progress = MutableStateFlow<String?>(null)
+    val progress: StateFlow<String?> = _progress.asStateFlow()
+
+    fun refresh() {
+        if (_refreshing.value) return
+        _refreshing.value = true
+        viewModelScope.launch {
+            repo.refreshLibrary { done, total -> _progress.value = "$done / $total" }
+            _progress.value = null
+            _refreshing.value = false
+        }
+    }
+
+    fun markRead(chapterId: Long, read: Boolean) =
+        viewModelScope.launch { repo.markRead(chapterId, read, if (read) 1f else 0f) }
+
+    fun download(chapterId: Long) = viewModelScope.launch { downloader.download(chapterId) }
+}
+
+/** Download manager: what's queued, running, and already stored offline. */
+class DownloadsViewModel(
+    private val repo: LibraryRepository,
+    private val downloader: Downloader,
+) : ViewModel() {
+
+    val downloaded: StateFlow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
+        repo.observeDownloaded()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    /** Live per-chapter state (RUNNING/DONE/FAILED) straight from the downloader. */
+    val progress: StateFlow<Map<Long, com.opennovel.reader.download.DownloadState>> = downloader.progress
+
+    fun delete(chapterId: Long) = viewModelScope.launch { downloader.delete(chapterId) }
+
+    /** Queues every not-yet-downloaded chapter of a novel. */
+    fun downloadAll(novelId: Long) = viewModelScope.launch {
+        downloader.enqueue(repo.undownloadedChapterIds(novelId))
+    }
+
+    fun retry(chapterId: Long) = viewModelScope.launch { downloader.download(chapterId) }
 }
 
 class HistoryViewModel(private val repo: LibraryRepository) : ViewModel() {
