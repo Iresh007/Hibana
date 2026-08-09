@@ -1,0 +1,61 @@
+Hibana 話
+Copyright 2026 Iresh Agrawal
+
+This product includes software developed as part of the Hibana project,
+licensed under the Apache License, Version 2.0.
+
+--------------------------------------------------------------------------------
+Third-party interoperability
+--------------------------------------------------------------------------------
+
+Hibana interoperates with several existing reader ecosystems. Where compatibility
+required matching an external API, package name, or file format, that surface was
+implemented against the upstream project's public interface.
+
+Mihon / Tachiyomi — Apache License 2.0
+  https://github.com/mihonapp/mihon
+  The `eu.kanade.tachiyomi.*` classes under app/src/main/kotlin are a host-side
+  runtime implementation of the Tachiyomi extensions-lib API. They exist so that
+  extension APKs compiled against that API resolve at runtime. The `.tachibk`
+  backup schema is likewise implemented to match the published wire format.
+
+IReader — Apache License 2.0
+  https://github.com/IReaderorg/IReader
+  Hibana depends on the published artifact `io.github.ireaderorg:source-api`
+  rather than reimplementing it.
+
+LNReader — MIT License
+  https://github.com/lnreader/lnreader
+  Hibana loads LNReader JavaScript plugins and provides the host modules those
+  plugins import (`@libs/fetch`, `cheerio`, and related shims).
+
+Manatan
+  https://github.com/KolbyML/Manatan
+  Manatan extensions use the Tachiyomi extension packaging and are loaded through
+  the same runtime described above.
+
+--------------------------------------------------------------------------------
+Bundled dependencies
+--------------------------------------------------------------------------------
+
+Notable third-party libraries, each under its own license:
+
+  AndroidX / Jetpack Compose, Room, DataStore, WorkManager — Apache License 2.0
+  Kotlin, kotlinx.coroutines, kotlinx.serialization                — Apache License 2.0
+  OkHttp                                                          — Apache License 2.0
+  jsoup                                                           — MIT License
+  Coil                                                            — Apache License 2.0
+  Google ML Kit (text recognition, translation)                   — Apache License 2.0
+  Mozilla Rhino                                                   — Mozilla Public License 2.0
+
+Rhino is used unmodified as a library dependency. MPL 2.0 obligations attach to
+Rhino's own source files, not to this project's code.
+
+--------------------------------------------------------------------------------
+Content
+--------------------------------------------------------------------------------
+
+Hibana ships no content and hosts no content. It reads from sources supplied by
+third-party extensions that the user chooses to install. Responsibility for the
+legality of any content accessed through those extensions rests with the user and
+with the extension and site operators, not with this project.

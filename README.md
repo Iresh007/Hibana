@@ -169,6 +169,23 @@ missing** rather than quietly producing an unsigned build.
 
 ---
 
+## License
+
+Licensed under the **Apache License 2.0** — see [`LICENSE`](LICENSE) and
+[`NOTICE`](NOTICE).
+
+Apache 2.0 fits this project for three reasons: Mihon and IReader are both
+Apache 2.0, so the compatibility layers here sit comfortably alongside them; it
+grants patent rights explicitly, which bare MIT does not; and it requires
+attribution notices to be preserved, which matters because Hibana implements
+several upstream APIs and formats.
+
+Hibana ships and hosts no content. It reads from sources supplied by third-party
+extensions that you choose to install; responsibility for what those extensions
+access rests with their operators and with you.
+
+---
+
 ## Acknowledgements
 
 Hibana interoperates with formats and extension APIs from
