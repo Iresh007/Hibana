@@ -46,6 +46,8 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
             SettingsViewModel(c.settingsRepository)
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
             BackupViewModel(c.backupManager)
+        modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
+            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
             ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.settingsRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
@@ -296,6 +298,79 @@ data class SourceSearchResult(
     val loading: Boolean = false,
     val error: String? = null,
 )
+
+/**
+ * Backs the Extensions screen: shows what's installed across every ecosystem,
+ * browses the LNReader plugin repository, and installs plugins.
+ *
+ * APK ecosystems (Mihon/Manatan/IReader) are installed through the system
+ * package manager, so they can only be listed here — not installed in-app.
+ */
+class ExtensionsViewModel(
+    private val extensionManager: com.opennovel.reader.extension.ExtensionManager,
+    private val loaders: List<com.opennovel.reader.extension.ExtensionLoader>,
+    private val sourceManager: SourceManager,
+) : ViewModel() {
+
+    private val _installed = MutableStateFlow<List<com.opennovel.reader.extension.ExtensionInfo>>(emptyList())
+    val installed: StateFlow<List<com.opennovel.reader.extension.ExtensionInfo>> = _installed.asStateFlow()
+
+    private val _available = MutableStateFlow<List<com.opennovel.reader.extension.ExtensionInfo>>(emptyList())
+    val available: StateFlow<List<com.opennovel.reader.extension.ExtensionInfo>> = _available.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    private val _status = MutableStateFlow<String?>(null)
+    val status: StateFlow<String?> = _status.asStateFlow()
+
+    private val lnLoader
+        get() = loaders.filterIsInstance<com.opennovel.reader.extension.lnreader.LNReaderPluginLoader>().firstOrNull()
+
+    fun refreshInstalled() {
+        _busy.value = true
+        viewModelScope.launch {
+            extensionManager.loadInstalled()
+            _installed.value = extensionManager.installed.value
+            _busy.value = false
+        }
+    }
+
+    /** Loads the LNReader plugin catalogue. */
+    fun browseRepository() {
+        val loader = lnLoader ?: return
+        _busy.value = true
+        viewModelScope.launch {
+            _available.value = runCatching {
+                loader.listAvailable(
+                    com.opennovel.reader.extension.lnreader.LNReaderPluginLoader.DEFAULT_REPO,
+                )
+            }.getOrDefault(emptyList())
+            _busy.value = false
+            if (_available.value.isEmpty()) _status.value = "Could not load the plugin repository"
+        }
+    }
+
+    fun install(info: com.opennovel.reader.extension.ExtensionInfo) {
+        val loader = lnLoader ?: return
+        _busy.value = true
+        viewModelScope.launch {
+            val ok = runCatching { loader.install(info) }.getOrDefault(false)
+            if (ok) {
+                runCatching { loader.load(info) }.getOrDefault(emptyList())
+                    .forEach(sourceManager::register)
+                _available.value = _available.value.map {
+                    if (it.pkgId == info.pkgId) it.copy(installed = true) else it
+                }
+                refreshInstalled()
+            }
+            _status.value = if (ok) "Installed ${info.name}" else "Failed to install ${info.name}"
+            _busy.value = false
+        }
+    }
+
+    fun clearStatus() { _status.value = null }
+}
 
 class BackupViewModel(private val backup: com.opennovel.reader.backup.BackupManager) : ViewModel() {
     private val _status = MutableStateFlow<String?>(null)

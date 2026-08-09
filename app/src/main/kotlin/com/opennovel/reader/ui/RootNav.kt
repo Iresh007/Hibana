@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
@@ -22,6 +23,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.opennovel.reader.ui.screens.BrowseScreen
+import com.opennovel.reader.ui.screens.ExtensionsScreen
 import com.opennovel.reader.ui.screens.HistoryScreen
 import com.opennovel.reader.ui.screens.LibraryScreen
 import com.opennovel.reader.ui.screens.NovelDetailScreen
@@ -32,10 +34,12 @@ private sealed class Dest(val route: String, val label: String) {
     data object Library : Dest("library", "Library")
     data object History : Dest("history", "History")
     data object Browse : Dest("browse", "Browse")
+    data object Extensions : Dest("extensions", "Extensions")
     data object Settings : Dest("settings", "Settings")
 }
 
-private val bottomDests = listOf(Dest.Library, Dest.History, Dest.Browse, Dest.Settings)
+private val bottomDests =
+    listOf(Dest.Library, Dest.History, Dest.Browse, Dest.Extensions, Dest.Settings)
 
 @Composable
 fun RootNav(factory: ViewModelProvider.Factory) {
@@ -65,6 +69,7 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                                         Dest.Library -> Icons.AutoMirrored.Filled.MenuBook
                                         Dest.History -> Icons.Filled.History
                                         Dest.Browse -> Icons.Filled.Explore
+                                        Dest.Extensions -> Icons.Filled.Extension
                                         Dest.Settings -> Icons.Filled.Settings
                                     },
                                     contentDescription = dest.label,
@@ -109,6 +114,9 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     onBack = { nav.popBackStack() },
                 )
             }
+            composable(Dest.Extensions.route) {
+                ExtensionsScreen(factory = factory)
+            }
             composable(Dest.Settings.route) {
                 SettingsScreen(factory = factory)
             }
@@ -119,3 +127,4 @@ fun RootNav(factory: ViewModelProvider.Factory) {
         }
     }
 }
+

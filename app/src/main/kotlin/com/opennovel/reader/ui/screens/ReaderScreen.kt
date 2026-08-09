@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -39,6 +40,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
 import com.opennovel.reader.ui.ReaderViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -54,19 +56,25 @@ fun ReaderScreen(
     val error by vm.error.collectAsStateWithLifecycle()
     val ttsState by vm.ttsState.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val pageUrls by vm.pageUrls.collectAsStateWithLifecycle()
+    val ocrRunning by vm.ocrRunning.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
 
+    // A chapter is either text (novel) or page images (manga), never both.
+    val isManga = pageUrls.isNotEmpty() && content?.paragraphs.isNullOrEmpty()
+
     LaunchedEffect(chapterId) { vm.load(chapterId) }
 
-    // Auto-scroll to the paragraph TTS is currently speaking.
+    // Auto-scroll to the paragraph TTS is currently speaking (text mode only;
+    // in manga mode the indices refer to OCR lines, not pages).
     LaunchedEffect(ttsState.index, ttsState.speaking) {
-        if (ttsState.speaking) listState.animateScrollToItem(ttsState.index)
+        if (ttsState.speaking && !isManga) listState.animateScrollToItem(ttsState.index)
     }
 
     // Persist scroll progress as the user reads.
-    LaunchedEffect(listState.firstVisibleItemIndex) {
-        val total = content?.paragraphs?.size ?: return@LaunchedEffect
+    LaunchedEffect(listState.firstVisibleItemIndex, isManga) {
+        val total = if (isManga) pageUrls.size else content?.paragraphs?.size ?: return@LaunchedEffect
         if (total > 0) vm.saveProgress(listState.firstVisibleItemIndex.toFloat() / total)
     }
 
@@ -113,6 +121,19 @@ fun ReaderScreen(
                 error != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text(error!!, color = MaterialTheme.colorScheme.error)
                 }
+                // Manga: continuous vertical page strip (webtoon-style), which
+                // suits the manhwa/manhua this app targets.
+                isManga -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                    itemsIndexed(pageUrls) { index, url ->
+                        AsyncImage(
+                            model = url,
+                            contentDescription = "Page ${index + 1}",
+                            contentScale = ContentScale.FitWidth,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+
                 else -> LazyColumn(
                     state = listState,
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
@@ -130,6 +151,23 @@ fun ReaderScreen(
                                 MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurface,
                         )
+                    }
+                }
+            }
+
+            // OCR runs before manga narration can start; it can take a few
+            // seconds per chapter, so surface it rather than appearing frozen.
+            if (ocrRunning) {
+                Surface(
+                    tonalElevation = 4.dp,
+                    modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        CircularProgressIndicator(Modifier.padding(end = 12.dp))
+                        Text("Reading text from pages…", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
