@@ -25,3 +25,6 @@
 # Stray nested clone accidentally committed as an embedded git repo (gitlink).
 # Ignored so it is never re-added as a submodule.
 /Mihon_like/
+
+# Local git worktrees used for feature work
+/.worktrees/
