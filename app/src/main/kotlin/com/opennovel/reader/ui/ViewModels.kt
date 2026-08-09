@@ -71,6 +71,38 @@ enum class LibrarySort(val label: String) {
 /** Sentinel category id for the "Default" tab (novels in no user category). */
 const val DEFAULT_CATEGORY_ID = 0L
 
+/**
+ * Tri-state library filter, as Mihon uses: a filter can be off, require the
+ * property, or exclude it. Two booleans can't express "show only entries with
+ * *no* downloads", which is exactly what you want when freeing space.
+ */
+enum class FilterState { IGNORED, INCLUDED, EXCLUDED;
+
+    /** Cycles ignored → included → excluded → ignored on each tap. */
+    fun next(): FilterState = when (this) {
+        IGNORED -> INCLUDED
+        INCLUDED -> EXCLUDED
+        EXCLUDED -> IGNORED
+    }
+
+    /** Applies this filter to whether an entry has the property. */
+    fun matches(has: Boolean): Boolean = when (this) {
+        IGNORED -> true
+        INCLUDED -> has
+        EXCLUDED -> !has
+    }
+}
+
+/** The library filter set, mirroring Mihon's filter sheet. */
+data class LibraryFilters(
+    val downloaded: FilterState = FilterState.IGNORED,
+    val unread: FilterState = FilterState.IGNORED,
+    val started: FilterState = FilterState.IGNORED,
+) {
+    val active: Int
+        get() = listOf(downloaded, unread, started).count { it != FilterState.IGNORED }
+}
+
 class LibraryViewModel(
     private val repo: LibraryRepository,
     private val settingsRepository: SettingsRepository,
@@ -101,9 +133,16 @@ class LibraryViewModel(
 
     private val assignments = repo.observeCategoryAssignments()
 
-    /** Library filtered by search query + selected category, ordered by the chosen sort. */
-    val library: StateFlow<List<NovelEntity>> =
-        combine(repo.observeLibrary(), assignments, _query, _sort, _selectedCategory) { novels, refs, query, sort, categoryId ->
+    private val _filters = MutableStateFlow(LibraryFilters())
+    val filters: StateFlow<LibraryFilters> = _filters.asStateFlow()
+
+    /**
+     * Category + search narrowing. Split from the filter/sort stage below
+     * because `combine` tops out at five flows, and splitting also means a
+     * filter change doesn't re-run category matching.
+     */
+    private val scopedLibrary =
+        combine(repo.observeLibrary(), assignments, _query, _selectedCategory) { novels, refs, query, categoryId ->
             val byCategory = if (categoryId == DEFAULT_CATEGORY_ID) {
                 val assignedNovelIds = refs.map { it.novelId }.toSet()
                 novels.filter { it.id !in assignedNovelIds }
@@ -111,14 +150,32 @@ class LibraryViewModel(
                 val idsInCategory = refs.filter { it.categoryId == categoryId }.map { it.novelId }.toSet()
                 novels.filter { it.id in idsInCategory }
             }
-            val filtered =
-                if (query.isBlank()) byCategory
-                else byCategory.filter { it.title.contains(query.trim(), ignoreCase = true) }
+            if (query.isBlank()) byCategory
+            else byCategory.filter { it.title.contains(query.trim(), ignoreCase = true) }
+        }
+
+    /** Library after tri-state filters, ordered by the chosen sort. */
+    val library: StateFlow<List<NovelEntity>> =
+        combine(scopedLibrary, repo.observeNovelCounts(), _filters, _sort) { novels, countList, filters, sort ->
+            val countsById = countList.associateBy { it.novelId }
+            val filtered = novels.filter { novel ->
+                val c = countsById[novel.id]
+                // No chapter rows yet means nothing is downloaded, unread or
+                // started — treat as false rather than hiding the entry outright.
+                filters.downloaded.matches((c?.downloaded ?: 0) > 0) &&
+                    filters.unread.matches((c?.unread ?: 0) > 0) &&
+                    filters.started.matches(c?.started == true)
+            }
             when (sort) {
                 LibrarySort.TITLE -> filtered.sortedBy { it.title.lowercase() }
                 LibrarySort.RECENTLY_ADDED -> filtered.sortedByDescending { it.dateAdded }
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun cycleDownloadedFilter() { _filters.value = _filters.value.copy(downloaded = _filters.value.downloaded.next()) }
+    fun cycleUnreadFilter() { _filters.value = _filters.value.copy(unread = _filters.value.unread.next()) }
+    fun cycleStartedFilter() { _filters.value = _filters.value.copy(started = _filters.value.started.next()) }
+    fun clearFilters() { _filters.value = LibraryFilters() }
 
     fun setQuery(value: String) { _query.value = value }
 
@@ -655,8 +712,18 @@ class ReaderViewModel(
     val tts: TtsManager,
     private val ocr: com.opennovel.reader.tts.MangaPageOcr,
     private val translator: com.opennovel.reader.tts.TranslationManager,
-    settingsRepo: SettingsRepository,
+    private val settingsRepo: SettingsRepository,
 ) : ViewModel() {
+
+    // Mirrors of the Settings screen controls, so the in-reader sheet can adjust
+    // type and layout while the result is visible behind it.
+    fun setFontScale(v: Float) = viewModelScope.launch { settingsRepo.setFontScale(v) }
+    fun setLineSpacing(v: Float) = viewModelScope.launch { settingsRepo.setLineSpacing(v) }
+    fun setFontFamily(v: String) = viewModelScope.launch { settingsRepo.setFontFamily(v) }
+    fun setThemeMode(v: ThemeMode) = viewModelScope.launch { settingsRepo.setThemeMode(v) }
+    fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { settingsRepo.setKeepScreenOn(v) }
+    fun setReadingMode(v: com.opennovel.reader.data.ReadingMode) =
+        viewModelScope.launch { settingsRepo.setReadingMode(v) }
 
     private val _content = MutableStateFlow<ChapterText?>(null)
     val content: StateFlow<ChapterText?> = _content.asStateFlow()

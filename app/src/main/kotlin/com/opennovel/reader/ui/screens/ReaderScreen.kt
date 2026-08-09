@@ -23,19 +23,29 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -50,6 +60,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.opennovel.reader.data.ReadingMode
+import com.opennovel.reader.data.ThemeMode
 import com.opennovel.reader.ui.ReaderViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -70,6 +81,7 @@ fun ReaderScreen(
     val translating by vm.translating.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
+    var showSettings by remember { mutableStateOf(false) }
 
     // A chapter is either text (novel) or page images (manga), never both.
     val isManga = pageUrls.isNotEmpty() && content?.paragraphs.isNullOrEmpty()
@@ -104,6 +116,9 @@ fun ReaderScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { showSettings = true }) {
+                        Icon(Icons.Filled.Tune, contentDescription = "Reader settings")
+                    }
                     IconButton(onClick = { vm.translateCurrent() }) {
                         Icon(Icons.Filled.Translate, contentDescription = "Translate chapter")
                     }
@@ -162,6 +177,15 @@ fun ReaderScreen(
                 }
             }
 
+            if (showSettings) {
+                ReaderSettingsSheet(
+                    settings = settings,
+                    isManga = isManga,
+                    vm = vm,
+                    onDismiss = { showSettings = false },
+                )
+            }
+
             // OCR runs before manga narration can start; it can take a few
             // seconds per chapter, so surface it rather than appearing frozen.
             if (ocrRunning || translating) {
@@ -177,6 +201,95 @@ fun ReaderScreen(
                         Text(if (ocrRunning) "Reading text from pages…" else "Translating…", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * In-reader settings sheet.
+ *
+ * The same values live in the Settings screen, but adjusting type size or page
+ * layout is something you do *while reading and looking at the result* — making
+ * the user leave the chapter to tweak it defeats the purpose. Only the controls
+ * relevant to the current content are shown: page-layout options are pointless
+ * for a text novel, and typography is pointless for manga.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ReaderSettingsSheet(
+    settings: com.opennovel.reader.data.ReaderSettings,
+    isManga: Boolean,
+    vm: ReaderViewModel,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Text("Reader settings", style = MaterialTheme.typography.titleMedium)
+
+            if (isManga) {
+                Text("Page layout", style = MaterialTheme.typography.labelLarge)
+                ReadingMode.entries.forEach { mode ->
+                    Row(
+                        Modifier.fillMaxWidth().clickableMinTouch { vm.setReadingMode(mode) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        RadioButton(selected = settings.readingMode == mode, onClick = null)
+                        Text(mode.label, Modifier.padding(start = 8.dp))
+                    }
+                }
+            } else {
+                Text(
+                    "Text size: ${"%.1f".format(settings.fontScale)}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Slider(
+                    value = settings.fontScale,
+                    onValueChange = vm::setFontScale,
+                    valueRange = 0.8f..1.8f,
+                )
+                Text(
+                    "Line spacing: ${"%.1f".format(settings.lineSpacing)}",
+                    style = MaterialTheme.typography.labelLarge,
+                )
+                Slider(
+                    value = settings.lineSpacing,
+                    onValueChange = vm::setLineSpacing,
+                    valueRange = 1.0f..2.2f,
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf("serif", "sans", "monospace").forEach { family ->
+                        FilterChip(
+                            selected = settings.fontFamily == family,
+                            onClick = { vm.setFontFamily(family) },
+                            label = { Text(family.replaceFirstChar { it.uppercase() }) },
+                        )
+                    }
+                }
+            }
+
+            HorizontalDivider()
+
+            Text("Theme", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ThemeMode.entries.forEach { mode ->
+                    FilterChip(
+                        selected = settings.themeMode == mode,
+                        onClick = { vm.setThemeMode(mode) },
+                        label = { Text(mode.name.lowercase().replaceFirstChar { it.uppercase() }) },
+                    )
+                }
+            }
+
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Keep screen on", Modifier.weight(1f))
+                Switch(checked = settings.keepScreenOn, onCheckedChange = vm::setKeepScreenOn)
             }
         }
     }

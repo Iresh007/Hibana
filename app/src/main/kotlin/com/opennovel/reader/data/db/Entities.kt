@@ -139,7 +139,11 @@ data class NovelCounts(
     val novelId: Long,
     val unread: Int,
     val downloaded: Int,
-)
+    val total: Int,
+) {
+    /** "Started" means at least one chapter has been read — Mihon's definition. */
+    val started: Boolean get() = total > unread
+}
 
 /**
  * A chapter joined with its novel, for the Updates feed and download queue —

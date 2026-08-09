@@ -21,7 +21,9 @@ import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
@@ -35,6 +37,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -63,6 +66,8 @@ import com.opennovel.reader.data.LibraryDisplayMode
 import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.ui.DEFAULT_CATEGORY_ID
+import com.opennovel.reader.ui.FilterState
+import com.opennovel.reader.ui.LibraryFilters
 import com.opennovel.reader.ui.LibrarySort
 import com.opennovel.reader.ui.LibraryViewModel
 
@@ -86,6 +91,7 @@ fun LibraryScreen(
     val selection by vm.selection.collectAsStateWithLifecycle()
     val counts by vm.counts.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
+    val filters by vm.filters.collectAsStateWithLifecycle()
     val inSelectionMode = selection.isNotEmpty()
 
     Column(Modifier.fillMaxSize()) {
@@ -117,6 +123,13 @@ fun LibraryScreen(
             TopAppBar(
                 title = { Text(if (novels.isEmpty()) "Library" else "Library (${novels.size})") },
                 actions = {
+                    LibraryFilterMenu(
+                        filters = filters,
+                        onCycleDownloaded = vm::cycleDownloadedFilter,
+                        onCycleUnread = vm::cycleUnreadFilter,
+                        onCycleStarted = vm::cycleStartedFilter,
+                        onClear = vm::clearFilters,
+                    )
                     LibraryDisplayMenu(
                         current = settings.libraryDisplayMode,
                         onSelect = vm::setLibraryDisplayMode,
@@ -244,6 +257,69 @@ private fun LibrarySortMenu(current: LibrarySort, onSelect: (LibrarySort) -> Uni
             )
         }
     }
+}
+
+/**
+ * Tri-state filters. Each row cycles ignored → include → exclude, and the icon
+ * carries a dot when any filter is active so a hidden filter never silently
+ * explains an "empty" library.
+ */
+@Composable
+private fun LibraryFilterMenu(
+    filters: LibraryFilters,
+    onCycleDownloaded: () -> Unit,
+    onCycleUnread: () -> Unit,
+    onCycleStarted: () -> Unit,
+    onClear: () -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    IconButton(onClick = { expanded = true }) {
+        Icon(
+            Icons.Filled.FilterList,
+            contentDescription = "Filter library",
+            tint = if (filters.active > 0) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                LocalContentColor.current
+            },
+        )
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        FilterRow("Downloaded", filters.downloaded, onCycleDownloaded)
+        FilterRow("Unread", filters.unread, onCycleUnread)
+        FilterRow("Started", filters.started, onCycleStarted)
+        if (filters.active > 0) {
+            DropdownMenuItem(
+                text = { Text("Clear filters") },
+                onClick = { onClear(); expanded = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun FilterRow(label: String, state: FilterState, onClick: () -> Unit) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        onClick = onClick,
+        trailingIcon = {
+            when (state) {
+                FilterState.IGNORED -> Unit
+                FilterState.INCLUDED -> Icon(
+                    Icons.Filled.Check,
+                    contentDescription = "Only $label",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                // A distinct icon, not just a colour change: "exclude" is easy
+                // to mistake for "include" if only the tint differs.
+                FilterState.EXCLUDED -> Icon(
+                    Icons.Filled.Block,
+                    contentDescription = "Exclude $label",
+                    tint = MaterialTheme.colorScheme.error,
+                )
+            }
+        },
+    )
 }
 
 /** Grid density / list toggle, kept in the toolbar like Mihon's. */
