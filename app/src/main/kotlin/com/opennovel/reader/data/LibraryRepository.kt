@@ -64,6 +64,10 @@ class LibraryRepository(
 
     // --- updates feed / downloads ---
 
+    /** Unread/downloaded tallies per novel, for library cover badges. */
+    fun observeNovelCounts(): Flow<List<com.opennovel.reader.data.db.NovelCounts>> =
+        chapterDao.observeNovelCounts()
+
     /** Newest chapters across the library — the Updates tab. */
     fun observeRecentChapters(): Flow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
         chapterDao.observeRecentChapters()

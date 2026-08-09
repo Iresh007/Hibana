@@ -44,7 +44,18 @@ data class ReaderSettings(
     val updateDayOfMonth: Int = 1,
     /** Only run scheduled updates on unmetered networks. */
     val updateOnWifiOnly: Boolean = true,
+    /** How library entries are laid out. */
+    val libraryDisplayMode: LibraryDisplayMode = LibraryDisplayMode.COMFORTABLE_GRID,
+    /** Show unread / downloaded counts on covers. */
+    val showLibraryBadges: Boolean = true,
 )
+
+/** Library layout, mirroring the options Mihon offers. */
+enum class LibraryDisplayMode(val label: String) {
+    COMFORTABLE_GRID("Comfortable grid"),
+    COMPACT_GRID("Compact grid"),
+    LIST("List"),
+}
 
 /**
  * Library update cadence. WorkManager enforces a 15-minute floor on periodic
@@ -119,6 +130,8 @@ class SettingsRepository(private val context: Context) {
             updateDayOfWeek = p[UPDATE_DOW] ?: 1,
             updateDayOfMonth = p[UPDATE_DOM] ?: 1,
             updateOnWifiOnly = p[UPDATE_WIFI_ONLY] ?: true,
+            libraryDisplayMode = enumOr(p[LIBRARY_DISPLAY], LibraryDisplayMode.COMFORTABLE_GRID),
+            showLibraryBadges = p[LIBRARY_BADGES] ?: true,
         )
     }
 
@@ -147,6 +160,8 @@ class SettingsRepository(private val context: Context) {
     // Capped at 28 so every month has the date.
     suspend fun setUpdateDayOfMonth(v: Int) = edit { it[UPDATE_DOM] = v.coerceIn(1, 28) }
     suspend fun setUpdateOnWifiOnly(v: Boolean) = edit { it[UPDATE_WIFI_ONLY] = v }
+    suspend fun setLibraryDisplayMode(v: LibraryDisplayMode) = edit { it[LIBRARY_DISPLAY] = v.name }
+    suspend fun setShowLibraryBadges(v: Boolean) = edit { it[LIBRARY_BADGES] = v }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
@@ -172,6 +187,8 @@ class SettingsRepository(private val context: Context) {
         val UPDATE_DOW = intPreferencesKey("update_day_of_week")
         val UPDATE_DOM = intPreferencesKey("update_day_of_month")
         val UPDATE_WIFI_ONLY = booleanPreferencesKey("update_wifi_only")
+        val LIBRARY_DISPLAY = stringPreferencesKey("library_display_mode")
+        val LIBRARY_BADGES = booleanPreferencesKey("library_badges")
 
         @Suppress("unused") val UNUSED_INT = intPreferencesKey("reserved")
     }

@@ -102,6 +102,18 @@ interface ChapterDao {
 
     @Query("SELECT id FROM chapters WHERE novelId = :novelId AND downloaded = 0 ORDER BY sourceOrder ASC")
     suspend fun undownloadedIds(novelId: Long): List<Long>
+
+    /** Unread/downloaded tallies per novel, for library cover badges. */
+    @Query(
+        """
+        SELECT novelId AS novelId,
+               SUM(CASE WHEN read = 0 THEN 1 ELSE 0 END) AS unread,
+               SUM(CASE WHEN downloaded = 1 THEN 1 ELSE 0 END) AS downloaded
+        FROM chapters
+        GROUP BY novelId
+        """,
+    )
+    fun observeNovelCounts(): Flow<List<NovelCounts>>
 }
 
 @Dao

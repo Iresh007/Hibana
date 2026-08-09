@@ -47,6 +47,14 @@ class AppContainer(context: Context) {
         sourceManager = sourceManager,
     )
 
+    /** Finds the same work on other sources and moves entries across. */
+    val migrationManager = com.opennovel.reader.migration.MigrationManager(
+        repo = libraryRepository,
+        novelDao = database.novelDao(),
+        chapterDao = database.chapterDao(),
+        sourceManager = sourceManager,
+    )
+
     val settingsRepository = SettingsRepository(context)
 
     val downloader = Downloader(

@@ -131,6 +131,17 @@ data class NovelCategoryCrossRef(
 )
 
 /**
+ * Per-novel counts behind the library cover badges. Computed in SQL rather than
+ * by loading every chapter, since a large library would otherwise pull tens of
+ * thousands of rows just to render badges.
+ */
+data class NovelCounts(
+    val novelId: Long,
+    val unread: Int,
+    val downloaded: Int,
+)
+
+/**
  * A chapter joined with its novel, for the Updates feed and download queue —
  * both need the novel's title/cover alongside chapter fields.
  */

@@ -1,6 +1,8 @@
 package com.opennovel.reader.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -9,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -16,9 +19,14 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.SelectAll
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.automirrored.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
@@ -51,6 +59,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.opennovel.reader.data.LibraryDisplayMode
 import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.ui.DEFAULT_CATEGORY_ID
@@ -62,6 +71,7 @@ import com.opennovel.reader.ui.LibraryViewModel
 fun LibraryScreen(
     factory: ViewModelProvider.Factory,
     onOpenNovel: (Long) -> Unit,
+    onMigrate: (List<Long>) -> Unit = {},
 ) {
     val vm: LibraryViewModel = viewModel(factory = factory)
     val novels by vm.library.collectAsStateWithLifecycle()
@@ -73,14 +83,49 @@ fun LibraryScreen(
     var showEditCategories by remember { mutableStateOf(false) }
     var assignTarget by remember { mutableStateOf<NovelEntity?>(null) }
 
+    val selection by vm.selection.collectAsStateWithLifecycle()
+    val counts by vm.counts.collectAsStateWithLifecycle()
+    val settings by vm.settings.collectAsStateWithLifecycle()
+    val inSelectionMode = selection.isNotEmpty()
+
     Column(Modifier.fillMaxSize()) {
-        TopAppBar(
-            title = { Text(if (novels.isEmpty()) "Library" else "Library (${novels.size})") },
-            actions = {
-                LibrarySortMenu(current = sort, onSelect = vm::setSort)
-                LibraryOverflowMenu(onEditCategories = { showEditCategories = true })
-            },
-        )
+        if (inSelectionMode) {
+            // Contextual bar, so batch actions never crowd the normal toolbar.
+            TopAppBar(
+                title = { Text("${selection.size} selected") },
+                navigationIcon = {
+                    IconButton(onClick = vm::clearSelection) {
+                        Icon(Icons.Filled.Close, contentDescription = "Clear selection")
+                    }
+                },
+                actions = {
+                    IconButton(onClick = vm::selectAllVisible) {
+                        Icon(Icons.Filled.SelectAll, contentDescription = "Select all")
+                    }
+                    IconButton(
+                        onClick = { novels.firstOrNull { it.id in selection }?.let { assignTarget = it } },
+                        enabled = selection.size == 1,
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Label, contentDescription = "Set categories")
+                    }
+                    IconButton(onClick = { onMigrate(selection.toList()); vm.clearSelection() }) {
+                        Icon(Icons.Filled.SwapHoriz, contentDescription = "Migrate to another source")
+                    }
+                },
+            )
+        } else {
+            TopAppBar(
+                title = { Text(if (novels.isEmpty()) "Library" else "Library (${novels.size})") },
+                actions = {
+                    LibraryDisplayMenu(
+                        current = settings.libraryDisplayMode,
+                        onSelect = vm::setLibraryDisplayMode,
+                    )
+                    LibrarySortMenu(current = sort, onSelect = vm::setSort)
+                    LibraryOverflowMenu(onEditCategories = { showEditCategories = true })
+                },
+            )
+        }
 
         // Category tabs (Mihon-style) — only when the user has created categories.
         if (categories.isNotEmpty()) {
@@ -110,18 +155,52 @@ fun LibraryScreen(
         when {
             novels.isEmpty() && query.isNotBlank() -> NoResults(query)
             novels.isEmpty() -> EmptyLibrary()
-            else -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 120.dp),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(novels, key = { it.id }) { novel ->
-                    NovelCover(
-                        novel = novel,
-                        onClick = { onOpenNovel(novel.id) },
-                        onLongClick = { assignTarget = novel },
-                    )
+            else -> {
+                // Grid density / list layout, as Mihon offers.
+                val cellSize = when (settings.libraryDisplayMode) {
+                    LibraryDisplayMode.COMPACT_GRID -> 92.dp
+                    else -> 120.dp
+                }
+                val spacing = if (settings.libraryDisplayMode == LibraryDisplayMode.COMPACT_GRID) 6.dp else 12.dp
+                LazyVerticalGrid(
+                    columns = if (settings.libraryDisplayMode == LibraryDisplayMode.LIST) {
+                        GridCells.Fixed(1)
+                    } else {
+                        GridCells.Adaptive(minSize = cellSize)
+                    },
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(spacing),
+                    horizontalArrangement = Arrangement.spacedBy(spacing),
+                    verticalArrangement = Arrangement.spacedBy(spacing),
+                ) {
+                    items(novels, key = { it.id }) { novel ->
+                        val badge = counts[novel.id]
+                        val onTap = {
+                            if (inSelectionMode) vm.toggleSelection(novel.id) else onOpenNovel(novel.id)
+                        }
+                        if (settings.libraryDisplayMode == LibraryDisplayMode.LIST) {
+                            NovelListRow(
+                                novel = novel,
+                                unread = badge?.unread ?: 0,
+                                downloaded = badge?.downloaded ?: 0,
+                                showBadges = settings.showLibraryBadges,
+                                selected = novel.id in selection,
+                                onClick = onTap,
+                                onLongClick = { vm.toggleSelection(novel.id) },
+                            )
+                        } else {
+                            NovelCover(
+                                novel = novel,
+                                selected = novel.id in selection,
+                                unread = badge?.unread ?: 0,
+                                downloaded = badge?.downloaded ?: 0,
+                                showBadges = settings.showLibraryBadges,
+                                // Long-press starts selection; once in selection
+                                // mode a tap toggles rather than opening.
+                                onClick = onTap,
+                                onLongClick = { vm.toggleSelection(novel.id) },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -161,6 +240,29 @@ private fun LibrarySortMenu(current: LibrarySort, onSelect: (LibrarySort) -> Uni
                 onClick = { onSelect(option); expanded = false },
                 trailingIcon = {
                     if (option == current) Icon(Icons.Filled.Check, contentDescription = null)
+                },
+            )
+        }
+    }
+}
+
+/** Grid density / list toggle, kept in the toolbar like Mihon's. */
+@Composable
+private fun LibraryDisplayMenu(
+    current: LibraryDisplayMode,
+    onSelect: (LibraryDisplayMode) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    IconButton(onClick = { expanded = true }) {
+        Icon(Icons.Filled.GridView, contentDescription = "Display mode")
+    }
+    DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        LibraryDisplayMode.entries.forEach { mode ->
+            DropdownMenuItem(
+                text = { Text(mode.label) },
+                onClick = { onSelect(mode); expanded = false },
+                trailingIcon = {
+                    if (mode == current) Icon(Icons.Filled.Check, contentDescription = null)
                 },
             )
         }
@@ -301,30 +403,67 @@ private fun NoResults(query: String) {
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun NovelCover(novel: NovelEntity, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun NovelCover(
+    novel: NovelEntity,
+    selected: Boolean = false,
+    unread: Int = 0,
+    downloaded: Int = 0,
+    showBadges: Boolean = true,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     Column(
         Modifier
             .clip(RoundedCornerShape(12.dp))
             .combinedClickable(onClick = onClick, onLongClick = onLongClick),
     ) {
-        Surface(
-            tonalElevation = 2.dp,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatioCover(),
-        ) {
-            if (novel.coverUrl != null) {
-                AsyncImage(
-                    model = novel.coverUrl,
-                    contentDescription = novel.title,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            } else {
-                Box(Modifier.fillMaxSize(), Alignment.Center) {
-                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
+        Box {
+            Surface(
+                tonalElevation = 2.dp,
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatioCover()
+                    // A border reads as "picked" at grid size better than a tint.
+                    .then(
+                        if (selected) {
+                            Modifier.border(
+                                3.dp,
+                                MaterialTheme.colorScheme.primary,
+                                RoundedCornerShape(12.dp),
+                            )
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                if (novel.coverUrl != null) {
+                    AsyncImage(
+                        model = novel.coverUrl,
+                        contentDescription = novel.title,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else {
+                    Box(Modifier.fillMaxSize(), Alignment.Center) {
+                        Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
+                    }
                 }
+            }
+            if (showBadges && (unread > 0 || downloaded > 0)) {
+                LibraryBadges(
+                    unread = unread,
+                    downloaded = downloaded,
+                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                )
+            }
+            if (selected) {
+                Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Selected",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                )
             }
         }
         Text(
@@ -334,6 +473,91 @@ private fun NovelCover(novel: NovelEntity, onClick: () -> Unit, onLongClick: () 
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp, start = 2.dp, end = 2.dp),
         )
+    }
+}
+
+/**
+ * Unread and downloaded counts on a cover — the at-a-glance signal Mihon users
+ * rely on to see what's worth opening without entering each entry.
+ */
+@Composable
+private fun LibraryBadges(unread: Int, downloaded: Int, modifier: Modifier = Modifier) {
+    Row(modifier.clip(RoundedCornerShape(4.dp))) {
+        if (unread > 0) {
+            Text(
+                unread.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onPrimary,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.primary)
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+            )
+        }
+        if (downloaded > 0) {
+            Text(
+                downloaded.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onTertiary,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.tertiary)
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+            )
+        }
+    }
+}
+
+/** Denser one-line layout for [LibraryDisplayMode.LIST]. */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun NovelListRow(
+    novel: NovelEntity,
+    unread: Int,
+    downloaded: Int,
+    showBadges: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .then(
+                if (selected) {
+                    Modifier.background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f))
+                } else {
+                    Modifier
+                },
+            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Surface(
+            shape = RoundedCornerShape(6.dp),
+            tonalElevation = 1.dp,
+            modifier = Modifier.width(40.dp).aspectRatioCover().clip(RoundedCornerShape(6.dp)),
+        ) {
+            if (novel.coverUrl != null) {
+                AsyncImage(
+                    model = novel.coverUrl,
+                    contentDescription = novel.title,
+                    contentScale = ContentScale.Crop,
+                )
+            } else {
+                Box(Modifier.fillMaxSize(), Alignment.Center) {
+                    Icon(Icons.AutoMirrored.Filled.MenuBook, contentDescription = null)
+                }
+            }
+        }
+        Text(
+            novel.title,
+            style = MaterialTheme.typography.bodyLarge,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
+        )
+        if (showBadges) LibraryBadges(unread = unread, downloaded = downloaded)
     }
 }
 

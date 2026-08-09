@@ -27,6 +27,7 @@ import com.opennovel.reader.ui.screens.DownloadsScreen
 import com.opennovel.reader.ui.screens.ExtensionsScreen
 import com.opennovel.reader.ui.screens.HistoryScreen
 import com.opennovel.reader.ui.screens.LibraryScreen
+import com.opennovel.reader.ui.screens.MigrationScreen
 import com.opennovel.reader.ui.screens.MoreScreen
 import com.opennovel.reader.ui.screens.NovelDetailScreen
 import com.opennovel.reader.ui.screens.ReaderScreen
@@ -99,6 +100,20 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                 LibraryScreen(
                     factory = factory,
                     onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
+                    // Ids are passed in the route so the screen can be reached
+                    // for one title or a whole batch identically.
+                    onMigrate = { ids -> nav.navigate("migrate/${ids.joinToString(",")}") },
+                )
+            }
+            composable("migrate/{novelIds}") { entry ->
+                val ids = entry.arguments?.getString("novelIds")
+                    ?.split(",")
+                    ?.mapNotNull { it.toLongOrNull() }
+                    .orEmpty()
+                MigrationScreen(
+                    novelIds = ids,
+                    factory = factory,
+                    onBack = { nav.popBackStack() },
                 )
             }
             composable(Dest.Updates.route) {

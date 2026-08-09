@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -36,13 +37,15 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
         modelClass.isAssignableFrom(LibraryViewModel::class.java) ->
-            LibraryViewModel(c.libraryRepository)
+            LibraryViewModel(c.libraryRepository, c.settingsRepository)
         modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
             HistoryViewModel(c.libraryRepository)
         modelClass.isAssignableFrom(UpdatesViewModel::class.java) ->
             UpdatesViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(DownloadsViewModel::class.java) ->
             DownloadsViewModel(c.libraryRepository, c.downloader)
+        modelClass.isAssignableFrom(MigrationViewModel::class.java) ->
+            MigrationViewModel(c.libraryRepository, c.migrationManager)
         modelClass.isAssignableFrom(BrowseViewModel::class.java) ->
             BrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(NovelDetailViewModel::class.java) ->
@@ -68,7 +71,19 @@ enum class LibrarySort(val label: String) {
 /** Sentinel category id for the "Default" tab (novels in no user category). */
 const val DEFAULT_CATEGORY_ID = 0L
 
-class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
+class LibraryViewModel(
+    private val repo: LibraryRepository,
+    private val settingsRepository: SettingsRepository,
+) : ViewModel() {
+
+    val settings: StateFlow<ReaderSettings> =
+        settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
+
+    /** Unread/downloaded tallies keyed by novel id, for cover badges. */
+    val counts: StateFlow<Map<Long, com.opennovel.reader.data.db.NovelCounts>> =
+        repo.observeNovelCounts()
+            .map { list -> list.associateBy { it.novelId } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
@@ -111,6 +126,27 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
 
     fun selectCategory(id: Long) { _selectedCategory.value = id }
 
+    // --- multi-select (batch migration) ---
+
+    /** Ids picked in selection mode; empty means normal browsing. */
+    private val _selection = MutableStateFlow<Set<Long>>(emptySet())
+    val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
+
+    fun toggleSelection(novelId: Long) {
+        _selection.value = if (novelId in _selection.value) {
+            _selection.value - novelId
+        } else {
+            _selection.value + novelId
+        }
+    }
+
+    fun clearSelection() { _selection.value = emptySet() }
+
+    fun selectAllVisible() { _selection.value = library.value.map { it.id }.toSet() }
+
+    fun setLibraryDisplayMode(mode: com.opennovel.reader.data.LibraryDisplayMode) =
+        viewModelScope.launch { settingsRepository.setLibraryDisplayMode(mode) }
+
     // --- category management ---
 
     fun createCategory(name: String) = viewModelScope.launch { repo.createCategory(name) }
@@ -133,6 +169,92 @@ class LibraryViewModel(private val repo: LibraryRepository) : ViewModel() {
     /** Resolve the chapter to open for a tapped novel, then invoke [onResolved]. */
     fun openNovel(novelId: Long, onResolved: (Long?) -> Unit) {
         viewModelScope.launch { onResolved(repo.resumeChapterId(novelId)) }
+    }
+}
+
+/**
+ * Drives source migration for one or many library entries.
+ *
+ * Each selected entry searches independently and is previewed before anything
+ * changes — migrating silently would risk destroying reading progress on a bad
+ * title match, so confirmation is always the user's.
+ */
+class MigrationViewModel(
+    private val repo: LibraryRepository,
+    private val migrations: com.opennovel.reader.migration.MigrationManager,
+) : ViewModel() {
+
+    private val _searches =
+        MutableStateFlow<List<com.opennovel.reader.migration.MigrationSearch>>(emptyList())
+    val searches: StateFlow<List<com.opennovel.reader.migration.MigrationSearch>> = _searches.asStateFlow()
+
+    /** Candidate chosen per novel id; nothing migrates until one is picked. */
+    private val _selected = MutableStateFlow<Map<Long, com.opennovel.reader.migration.MigrationCandidate>>(emptyMap())
+    val selected: StateFlow<Map<Long, com.opennovel.reader.migration.MigrationCandidate>> = _selected.asStateFlow()
+
+    private val _searching = MutableStateFlow(false)
+    val searching: StateFlow<Boolean> = _searching.asStateFlow()
+
+    private val _progress = MutableStateFlow<String?>(null)
+    val progress: StateFlow<String?> = _progress.asStateFlow()
+
+    private val _done = MutableStateFlow(false)
+    val done: StateFlow<Boolean> = _done.asStateFlow()
+
+    /** Searches every other source for each selected entry. */
+    fun search(novelIds: List<Long>) {
+        if (_searching.value) return
+        _searching.value = true
+        _done.value = false
+        viewModelScope.launch {
+            val results = mutableListOf<com.opennovel.reader.migration.MigrationSearch>()
+            novelIds.forEachIndexed { index, id ->
+                _progress.value = "Searching ${index + 1} / ${novelIds.size}"
+                repo.getNovel(id)?.let { novel ->
+                    results += migrations.findCandidates(novel)
+                }
+                _searches.value = results.toList()
+            }
+            // Pre-select the best candidate so the common case is one tap.
+            _selected.value = results.mapNotNull { search ->
+                search.candidates.firstOrNull()?.let { search.novel.id to it }
+            }.toMap()
+            _progress.value = null
+            _searching.value = false
+        }
+    }
+
+    fun choose(novelId: Long, candidate: com.opennovel.reader.migration.MigrationCandidate) {
+        _selected.value = _selected.value + (novelId to candidate)
+    }
+
+    fun skip(novelId: Long) {
+        _selected.value = _selected.value - novelId
+    }
+
+    /** Migrates every entry that still has a chosen candidate. */
+    fun migrateSelected(onFinished: (migrated: Int) -> Unit = {}) {
+        val choices = _selected.value
+        if (choices.isEmpty()) return
+        _searching.value = true
+        viewModelScope.launch {
+            var migrated = 0
+            choices.entries.forEachIndexed { index, (novelId, candidate) ->
+                _progress.value = "Migrating ${index + 1} / ${choices.size}"
+                val novel = repo.getNovel(novelId)
+                if (novel != null && migrations.migrate(novel, candidate).isSuccess) migrated++
+            }
+            _progress.value = null
+            _searching.value = false
+            _done.value = true
+            onFinished(migrated)
+        }
+    }
+
+    fun reset() {
+        _searches.value = emptyList()
+        _selected.value = emptyMap()
+        _done.value = false
     }
 }
 
