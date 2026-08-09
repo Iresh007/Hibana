@@ -12,14 +12,18 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,6 +31,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
@@ -58,6 +65,10 @@ fun MigrationScreen(
     val searching by vm.searching.collectAsStateWithLifecycle()
     val progress by vm.progress.collectAsStateWithLifecycle()
     val done by vm.done.collectAsStateWithLifecycle()
+    val availableSources by vm.availableSources.collectAsStateWithLifecycle()
+    val targetSources by vm.targetSources.collectAsStateWithLifecycle()
+
+    var showSourcePicker by remember { mutableStateOf(false) }
 
     LaunchedEffect(novelIds) { vm.search(novelIds) }
     LaunchedEffect(done) { if (done) onBack() }
@@ -71,6 +82,19 @@ fun MigrationScreen(
                 }
             },
             actions = {
+                IconButton(onClick = { showSourcePicker = true }) {
+                    Icon(
+                        Icons.Filled.FilterList,
+                        contentDescription = "Choose sources to search",
+                        // Tinted when narrowed, so "no matches" is never silently
+                        // caused by a forgotten source restriction.
+                        tint = if (targetSources != null) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            LocalContentColor.current
+                        },
+                    )
+                }
                 TextButton(
                     onClick = { vm.migrateSelected() },
                     enabled = !searching && selected.isNotEmpty(),
@@ -109,6 +133,72 @@ fun MigrationScreen(
                     )
                     HorizontalDivider()
                 }
+            }
+        }
+    }
+
+    if (showSourcePicker) {
+        SourcePickerSheet(
+            sources = availableSources,
+            isSelected = vm::isSourceSelected,
+            allSelected = targetSources == null,
+            onToggle = vm::toggleTargetSource,
+            onSelectAll = vm::useAllSources,
+            onDismiss = { showSourcePicker = false },
+            // Re-running the search is the point of changing the selection.
+            onApply = { showSourcePicker = false; vm.search(novelIds) },
+        )
+    }
+}
+
+/**
+ * Chooses which sources migration searches.
+ *
+ * "All sources" is the default, but a large extension list makes that slow and
+ * buries the two or three sources you actually read from — so narrowing is
+ * offered up front rather than after a long fruitless sweep.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SourcePickerSheet(
+    sources: List<com.opennovel.reader.ui.LibrarySourceUsage>,
+    isSelected: (Long) -> Boolean,
+    allSelected: Boolean,
+    onToggle: (Long) -> Unit,
+    onSelectAll: () -> Unit,
+    onDismiss: () -> Unit,
+    onApply: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 28.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Search in",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = onSelectAll, enabled = !allSelected) { Text("All sources") }
+            }
+
+            LazyColumn(Modifier.weight(1f, fill = false)) {
+                items(sources, key = { it.sourceId }) { source ->
+                    Row(
+                        Modifier.fillMaxWidth().clickableMinTouch { onToggle(source.sourceId) },
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = isSelected(source.sourceId), onCheckedChange = null)
+                        Text(source.sourceName, Modifier.padding(start = 12.dp))
+                    }
+                }
+            }
+
+            Button(onClick = onApply, modifier = Modifier.fillMaxWidth().padding(top = 12.dp)) {
+                Text("Search again")
             }
         }
     }
@@ -214,3 +304,4 @@ private fun CandidateRow(
         }
     }
 }
+

@@ -57,9 +57,17 @@ class MigrationManager(
     suspend fun findCandidates(
         novel: NovelEntity,
         includeChapterCounts: Boolean = true,
+        /**
+         * Sources to search. Null means every source. Narrowing matters: a large
+         * extension list makes an all-sources sweep slow and buries the two or
+         * three sources you actually read from.
+         */
+        targetSourceIds: Set<Long>? = null,
     ): MigrationSearch = coroutineScope {
         val current = chapterDao.getForNovel(novel.id)
-        val others = sourceManager.catalogueSources().filter { it.id != novel.sourceId }
+        val others = sourceManager.catalogueSources()
+            .filter { it.id != novel.sourceId }
+            .filter { targetSourceIds == null || it.id in targetSourceIds }
 
         val results = others.map { source ->
             async(Dispatchers.IO) { bestCandidate(source, novel, includeChapterCounts) }

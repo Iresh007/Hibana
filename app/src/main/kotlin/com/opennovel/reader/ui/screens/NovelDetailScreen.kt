@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -60,6 +61,7 @@ fun NovelDetailScreen(
     factory: ViewModelProvider.Factory,
     onOpenChapter: (Long) -> Unit,
     onBack: () -> Unit,
+    onMigrate: (Long) -> Unit = {},
 ) {
     val vm: NovelDetailViewModel = viewModel(factory = factory)
     LaunchedEffect(novelId) { vm.load(novelId) }
@@ -80,6 +82,12 @@ fun NovelDetailScreen(
                 }
             },
             actions = {
+                // Single-title migration, without going via library selection.
+                if (novel?.inLibrary == true) {
+                    IconButton(onClick = { onMigrate(novelId) }) {
+                        Icon(Icons.Filled.SwapHoriz, contentDescription = "Migrate to another source")
+                    }
+                }
                 IconButton(onClick = vm::refresh) {
                     Icon(Icons.Filled.Refresh, contentDescription = "Refresh chapters")
                 }
@@ -277,4 +285,5 @@ private fun formatUploadDate(millis: Long): String {
             .format(java.util.Date(millis))
     }
 }
+
 

@@ -45,7 +45,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(DownloadsViewModel::class.java) ->
             DownloadsViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(MigrationViewModel::class.java) ->
-            MigrationViewModel(c.libraryRepository, c.migrationManager)
+            MigrationViewModel(c.libraryRepository, c.migrationManager, c.sourceManager)
         modelClass.isAssignableFrom(BrowseViewModel::class.java) ->
             BrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(NovelDetailViewModel::class.java) ->
@@ -264,7 +264,33 @@ class LibraryViewModel(
 class MigrationViewModel(
     private val repo: LibraryRepository,
     private val migrations: com.opennovel.reader.migration.MigrationManager,
+    private val sourceManager: SourceManager,
 ) : ViewModel() {
+
+    /** Every source that could be migrated to. */
+    val availableSources: StateFlow<List<LibrarySourceUsage>> =
+        MutableStateFlow(
+            sourceManager.catalogueSources().map {
+                LibrarySourceUsage(sourceId = it.id, sourceName = it.name, count = 0)
+            }.sortedBy { it.sourceName.lowercase() },
+        ).asStateFlow()
+
+    /**
+     * Sources to search. Null means "all" — distinct from an empty set, which
+     * means the user deselected everything and should get no results rather than
+     * silently falling back to all.
+     */
+    private val _targetSources = MutableStateFlow<Set<Long>?>(null)
+    val targetSources: StateFlow<Set<Long>?> = _targetSources.asStateFlow()
+
+    fun useAllSources() { _targetSources.value = null }
+
+    fun toggleTargetSource(id: Long) {
+        val current = _targetSources.value ?: availableSources.value.map { it.sourceId }.toSet()
+        _targetSources.value = if (id in current) current - id else current + id
+    }
+
+    fun isSourceSelected(id: Long): Boolean = _targetSources.value?.contains(id) ?: true
 
     private val _searches =
         MutableStateFlow<List<com.opennovel.reader.migration.MigrationSearch>>(emptyList())
@@ -293,7 +319,10 @@ class MigrationViewModel(
             novelIds.forEachIndexed { index, id ->
                 _progress.value = "Searching ${index + 1} / ${novelIds.size}"
                 repo.getNovel(id)?.let { novel ->
-                    results += migrations.findCandidates(novel)
+                    results += migrations.findCandidates(
+                        novel = novel,
+                        targetSourceIds = _targetSources.value,
+                    )
                 }
                 _searches.value = results.toList()
             }

@@ -22,13 +22,15 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
-import com.opennovel.reader.ui.screens.BrowseScreen
+import com.opennovel.reader.ui.screens.BrowseHostScreen
 import com.opennovel.reader.ui.screens.DownloadsScreen
 import com.opennovel.reader.ui.screens.ExtensionReposScreen
 import com.opennovel.reader.ui.screens.ExtensionsScreen
+import com.opennovel.reader.ui.screens.GlobalSearchScreen
 import com.opennovel.reader.ui.screens.SourceBrowseScreen
 import com.opennovel.reader.ui.screens.HistoryScreen
 import com.opennovel.reader.ui.screens.LibraryScreen
+import com.opennovel.reader.ui.screens.MigrateSourceScreen
 import com.opennovel.reader.ui.screens.MigrationScreen
 import com.opennovel.reader.ui.screens.MoreScreen
 import com.opennovel.reader.ui.screens.NovelDetailScreen
@@ -137,6 +139,14 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     onOpenRepos = { nav.navigate("extension_repos") },
                     onBrowseSource = { sourceId -> nav.navigate("source/$sourceId") },
                     onMigrateFromSource = { sourceId -> nav.navigate("migrate_source/$sourceId") },
+                    onGlobalSearch = { nav.navigate("global_search") },
+                )
+            }
+            composable("global_search") {
+                GlobalSearchScreen(
+                    factory = factory,
+                    onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
+                    onBack = { nav.popBackStack() },
                 )
             }
             composable("migrate_source/{sourceId}") { entry ->
@@ -187,6 +197,7 @@ fun RootNav(factory: ViewModelProvider.Factory) {
                     factory = factory,
                     onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
                     onBack = { nav.popBackStack() },
+                    onMigrate = { id2 -> nav.navigate("migrate/$id2") },
                 )
             }
             composable("reader/{chapterId}") { entry ->
@@ -196,3 +207,4 @@ fun RootNav(factory: ViewModelProvider.Factory) {
         }
     }
 }
+

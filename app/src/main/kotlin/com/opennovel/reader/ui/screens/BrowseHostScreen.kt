@@ -11,12 +11,15 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.TravelExplore
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -48,10 +51,21 @@ fun BrowseHostScreen(
     onOpenRepos: () -> Unit,
     onBrowseSource: (Long) -> Unit,
     onMigrateFromSource: (Long) -> Unit,
+    onGlobalSearch: () -> Unit,
 ) {
     var tab by remember { mutableIntStateOf(0) }
 
     Column(Modifier.fillMaxSize()) {
+        TopAppBar(
+            title = { Text("Browse") },
+            actions = {
+                // Global search spans every source, so it belongs above the tabs
+                // rather than inside the per-source Sources tab.
+                IconButton(onClick = onGlobalSearch) {
+                    Icon(Icons.Filled.TravelExplore, contentDescription = "Search all sources")
+                }
+            },
+        )
         TabRow(selectedTabIndex = tab) {
             Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Sources") })
             Tab(selected = tab == 1, onClick = { tab = 1 }, text = { Text("Extensions") })
