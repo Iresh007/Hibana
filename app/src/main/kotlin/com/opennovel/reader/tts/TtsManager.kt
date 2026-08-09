@@ -39,9 +39,20 @@ class TtsManager(context: Context) {
 
     fun availableVoices(): List<Voice> = tts?.voices?.toList().orEmpty()
 
-    fun configure(speed: Float, pitch: Float, voiceName: String) {
+    fun configure(speed: Float, pitch: Float, voiceName: String, languageTag: String = "") {
         tts?.setSpeechRate(speed)
         tts?.setPitch(pitch)
+        if (languageTag.isNotBlank()) {
+            val locale = Locale.forLanguageTag(languageTag)
+            // MISSING_DATA/NOT_SUPPORTED mean the voice pack isn't installed; keep
+            // the current language rather than falling back to silence.
+            val result = tts?.setLanguage(locale)
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                _state.value = _state.value.copy(
+                    error = "No installed voice for ${locale.displayLanguage}; using the default",
+                )
+            }
+        }
         if (voiceName.isNotBlank()) {
             tts?.voices?.firstOrNull { it.name == voiceName }?.let { tts?.voice = it }
         }

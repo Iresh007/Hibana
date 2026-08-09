@@ -88,6 +88,7 @@ dependencies {
     implementation(libs.mlkit.text.japanese)
     implementation(libs.mlkit.text.korean)
     implementation(libs.mlkit.text.chinese)
+    implementation(libs.mlkit.translate)
     implementation(libs.coil.compose)
 
     debugImplementation(libs.androidx.ui.tooling)

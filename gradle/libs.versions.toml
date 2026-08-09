@@ -75,6 +75,9 @@ mlkit-text-latin = { group = "com.google.mlkit", name = "text-recognition", vers
 mlkit-text-japanese = { group = "com.google.mlkit", name = "text-recognition-japanese", version = "16.0.1" }
 mlkit-text-korean = { group = "com.google.mlkit", name = "text-recognition-korean", version = "16.0.1" }
 mlkit-text-chinese = { group = "com.google.mlkit", name = "text-recognition-chinese", version = "16.0.1" }
+# On-device translation. Language packs download at runtime (~30MB each), so
+# this adds little to the APK unlike the bundled OCR models.
+mlkit-translate = { group = "com.google.mlkit", name = "translate", version = "17.0.3" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

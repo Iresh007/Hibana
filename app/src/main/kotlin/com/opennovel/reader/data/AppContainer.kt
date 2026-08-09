@@ -58,6 +58,9 @@ class AppContainer(context: Context) {
     /** On-device OCR so TTS can narrate manga pages, which are images. */
     val mangaPageOcr = com.opennovel.reader.tts.MangaPageOcr(httpClient)
 
+    /** On-device translation for OCR'd manga text and novel chapters. */
+    val translationManager = com.opennovel.reader.tts.TranslationManager()
+
     /** Loaders for each third-party extension ecosystem we interoperate with. */
     val extensionLoaders: List<ExtensionLoader> = listOf(
         IReaderExtensionLoader(context),                 // native IReader novel extensions
@@ -88,3 +91,4 @@ class AppContainer(context: Context) {
     /** Scan installed Mihon/Manatan/IReader extensions and register their sources. */
     suspend fun loadInstalledExtensions() = extensionManager.loadInstalled()
 }
+

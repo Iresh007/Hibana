@@ -49,7 +49,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
             ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
-            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.settingsRepository)
+            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
     } as T
 }
@@ -418,6 +418,11 @@ class SettingsViewModel(private val repo: SettingsRepository) : ViewModel() {
     fun setTtsSpeed(v: Float) = viewModelScope.launch { repo.setTtsSpeed(v) }
     fun setTtsPitch(v: Float) = viewModelScope.launch { repo.setTtsPitch(v) }
     fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { repo.setKeepScreenOn(v) }
+    fun setReadingMode(v: com.opennovel.reader.data.ReadingMode) = viewModelScope.launch { repo.setReadingMode(v) }
+    fun setOcrScript(v: com.opennovel.reader.data.OcrScriptSetting) = viewModelScope.launch { repo.setOcrScript(v) }
+    fun setTtsLanguage(v: com.opennovel.reader.data.SpeechLanguage) = viewModelScope.launch { repo.setTtsLanguage(v) }
+    fun setTranslateEnabled(v: Boolean) = viewModelScope.launch { repo.setTranslateEnabled(v) }
+    fun setTranslateTarget(v: com.opennovel.reader.data.TranslateLanguage) = viewModelScope.launch { repo.setTranslateTarget(v) }
 }
 
 class ReaderViewModel(
@@ -426,6 +431,7 @@ class ReaderViewModel(
     private val downloader: Downloader,
     val tts: TtsManager,
     private val ocr: com.opennovel.reader.tts.MangaPageOcr,
+    private val translator: com.opennovel.reader.tts.TranslationManager,
     settingsRepo: SettingsRepository,
 ) : ViewModel() {
 
@@ -450,6 +456,10 @@ class ReaderViewModel(
     /** True while manga pages are being OCR'd for narration. */
     private val _ocrRunning = MutableStateFlow(false)
     val ocrRunning: StateFlow<Boolean> = _ocrRunning.asStateFlow()
+
+    /** True while text is being translated (may include a model download). */
+    private val _translating = MutableStateFlow(false)
+    val translating: StateFlow<Boolean> = _translating.asStateFlow()
 
     private var current: ChapterEntity? = null
 
@@ -489,12 +499,18 @@ class ReaderViewModel(
 
     /**
      * Narrates the chapter. Novels speak their paragraphs directly; manga has no
-     * source text, so its pages are OCR'd first and the recognised lines spoken.
-     * OCR result is cached in [_content] so a replay doesn't re-run recognition.
+     * source text, so pages are OCR'd first. When translation is on, recognised
+     * (or novel) text is translated before it is shown and spoken, so the
+     * narrator's language matches what's on screen.
+     *
+     * Results are written back to [_content] so replaying doesn't repeat the
+     * expensive OCR/translation work.
      */
-    fun startTts(speed: Float, pitch: Float, voice: String, script: OcrScript = OcrScript.LATIN) {
+    fun startTts(speed: Float, pitch: Float, voice: String) {
         viewModelScope.launch {
+            val s = settings.value
             var paras = _content.value?.paragraphs.orEmpty()
+            val script = s.ocrScript.toOcrScript()
 
             if (paras.isEmpty()) {
                 val pages = _pageUrls.value
@@ -509,12 +525,66 @@ class ReaderViewModel(
                 _content.value = ChapterText(paras)
             }
 
+            if (s.translateEnabled) {
+                val translated = translateLines(paras, script, s.translateTarget.code)
+                if (translated != null) {
+                    paras = translated
+                    _content.value = ChapterText(paras)
+                }
+            }
+
             val speakable = paras
             tts.init {
-                tts.configure(speed, pitch, voice)
+                tts.configure(speed, pitch, voice, s.ttsLanguage.tag)
                 tts.speak(speakable, tts.state.value.index)
             }
         }
+    }
+
+    /** Translates the current chapter in place, without starting narration. */
+    fun translateCurrent() {
+        viewModelScope.launch {
+            val s = settings.value
+            var paras = _content.value?.paragraphs.orEmpty()
+            val script = s.ocrScript.toOcrScript()
+
+            if (paras.isEmpty()) {
+                val pages = _pageUrls.value
+                if (pages.isEmpty()) return@launch
+                _ocrRunning.value = true
+                paras = runCatching { ocr.readChapter(pages, script) }.getOrDefault(emptyList())
+                _ocrRunning.value = false
+                if (paras.isEmpty()) { _error.value = "No text recognised on these pages"; return@launch }
+            }
+            val translated = translateLines(paras, script, s.translateTarget.code)
+            _content.value = ChapterText(translated ?: paras)
+        }
+    }
+
+    /** Downloads the model pair if needed, then translates. Null means unavailable. */
+    private suspend fun translateLines(
+        lines: List<String>,
+        script: OcrScript,
+        targetCode: String,
+    ): List<String>? {
+        _translating.value = true
+        val source = translator.sourceFor(script)
+        val ready = translator.ensureModel(source, targetCode)
+        val result = if (ready) {
+            translator.translate(lines, source, targetCode)
+        } else {
+            _error.value = "Translation model unavailable — connect to Wi-Fi to download it"
+            null
+        }
+        _translating.value = false
+        return result
+    }
+
+    private fun com.opennovel.reader.data.OcrScriptSetting.toOcrScript(): OcrScript = when (this) {
+        com.opennovel.reader.data.OcrScriptSetting.LATIN -> OcrScript.LATIN
+        com.opennovel.reader.data.OcrScriptSetting.JAPANESE -> OcrScript.JAPANESE
+        com.opennovel.reader.data.OcrScriptSetting.KOREAN -> OcrScript.KOREAN
+        com.opennovel.reader.data.OcrScriptSetting.CHINESE -> OcrScript.CHINESE
     }
     fun pauseTts() = tts.pause()
     fun resumeTts() = tts.resume()
@@ -522,3 +592,5 @@ class ReaderViewModel(
 
     override fun onCleared() { tts.stop() }
 }
+
+

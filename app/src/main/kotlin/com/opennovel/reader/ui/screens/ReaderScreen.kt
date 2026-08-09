@@ -1,5 +1,6 @@
 package com.opennovel.reader.ui.screens
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,6 +11,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.VerticalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Download
@@ -28,12 +32,15 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -41,6 +48,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.opennovel.reader.data.ReadingMode
 import com.opennovel.reader.ui.ReaderViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -58,6 +66,7 @@ fun ReaderScreen(
     val settings by vm.settings.collectAsStateWithLifecycle()
     val pageUrls by vm.pageUrls.collectAsStateWithLifecycle()
     val ocrRunning by vm.ocrRunning.collectAsStateWithLifecycle()
+    val translating by vm.translating.collectAsStateWithLifecycle()
 
     val listState = rememberLazyListState()
 
@@ -94,6 +103,9 @@ fun ReaderScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = { vm.translateCurrent() }) {
+                        Icon(Icons.Filled.Translate, contentDescription = "Translate chapter")
+                    }
                     IconButton(onClick = { vm.downloadCurrent() }) {
                         Icon(Icons.Filled.Download, contentDescription = "Download for offline")
                     }
@@ -121,18 +133,12 @@ fun ReaderScreen(
                 error != null -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                     Text(error!!, color = MaterialTheme.colorScheme.error)
                 }
-                // Manga: continuous vertical page strip (webtoon-style), which
-                // suits the manhwa/manhua this app targets.
-                isManga -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
-                    itemsIndexed(pageUrls) { index, url ->
-                        AsyncImage(
-                            model = url,
-                            contentDescription = "Page ${index + 1}",
-                            contentScale = ContentScale.FitWidth,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
+                // Manga layout follows the chosen reading mode.
+                isManga -> MangaPages(
+                    pageUrls = pageUrls,
+                    mode = settings.readingMode,
+                    listState = listState,
+                )
 
                 else -> LazyColumn(
                     state = listState,
@@ -157,7 +163,7 @@ fun ReaderScreen(
 
             // OCR runs before manga narration can start; it can take a few
             // seconds per chapter, so surface it rather than appearing frozen.
-            if (ocrRunning) {
+            if (ocrRunning || translating) {
                 Surface(
                     tonalElevation = 4.dp,
                     modifier = Modifier.align(Alignment.BottomCenter).padding(16.dp),
@@ -167,11 +173,83 @@ fun ReaderScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         CircularProgressIndicator(Modifier.padding(end = 12.dp))
-                        Text("Reading text from pages…", style = MaterialTheme.typography.bodyMedium)
+                        Text(if (ocrRunning) "Reading text from pages…" else "Translating…", style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * Renders manga pages in the reader's configured layout.
+ *
+ * Continuous modes scroll as one strip (manhwa/manhua convention); paged modes
+ * show one page at a time and swipe. [ReadingMode.PAGED_RTL] reverses the pager
+ * so page 1 sits on the right, which is how Japanese manga is read — without it
+ * a right-to-left title pages backwards.
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+private fun MangaPages(
+    pageUrls: List<String>,
+    mode: ReadingMode,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+) {
+    when (mode) {
+        ReadingMode.WEBTOON, ReadingMode.CONTINUOUS_VERTICAL -> {
+            val gap = if (mode == ReadingMode.CONTINUOUS_VERTICAL) 8.dp else 0.dp
+            LazyColumn(
+                state = listState,
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(gap),
+            ) {
+                itemsIndexed(pageUrls) { index, url ->
+                    AsyncImage(
+                        model = url,
+                        contentDescription = "Page ${index + 1}",
+                        contentScale = ContentScale.FillWidth,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+        }
+
+        ReadingMode.PAGED_LTR, ReadingMode.PAGED_RTL -> {
+            val rtl = mode == ReadingMode.PAGED_RTL
+            val pagerState = rememberPagerState(
+                initialPage = if (rtl) pageUrls.lastIndex.coerceAtLeast(0) else 0,
+            ) { pageUrls.size }
+            // Mirroring the layout direction flips swipe direction and page order
+            // together, so the pager itself needs no index arithmetic.
+            CompositionLocalProvider(
+                LocalLayoutDirection provides if (rtl) LayoutDirection.Rtl else LayoutDirection.Ltr,
+            ) {
+                HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                    PagedImage(pageUrls[page], page)
+                }
+            }
+        }
+
+        ReadingMode.PAGED_VERTICAL -> {
+            val pagerState = rememberPagerState { pageUrls.size }
+            VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
+                PagedImage(pageUrls[page], page)
+            }
+        }
+    }
+}
+
+/** A single page fitted to the screen, as paged modes expect. */
+@Composable
+private fun PagedImage(url: String, index: Int) {
+    Box(Modifier.fillMaxSize(), Alignment.Center) {
+        AsyncImage(
+            model = url,
+            contentDescription = "Page ${index + 1}",
+            contentScale = ContentScale.Fit,
+            modifier = Modifier.fillMaxSize(),
+        )
     }
 }
 
@@ -209,3 +287,4 @@ private fun TtsBar(
         }
     }
 }
+

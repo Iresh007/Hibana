@@ -16,6 +16,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -28,7 +29,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opennovel.reader.data.OcrScriptSetting
+import com.opennovel.reader.data.ReadingMode
+import com.opennovel.reader.data.SpeechLanguage
 import com.opennovel.reader.data.ThemeMode
+import com.opennovel.reader.data.TranslateLanguage
 import com.opennovel.reader.ui.BackupViewModel
 import com.opennovel.reader.ui.SettingsViewModel
 
@@ -76,9 +81,75 @@ fun SettingsScreen(factory: ViewModelProvider.Factory) {
             }
         }
 
+        Section("Reading mode (manga)") {
+            Text(
+                "How comic pages are laid out. Paged right-to-left matches Japanese manga.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            ReadingMode.entries.forEach { mode ->
+                Row(
+                    Modifier.fillMaxWidth().clickableMinTouch { vm.setReadingMode(mode) },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    RadioButton(selected = s.readingMode == mode, onClick = null)
+                    Text(mode.label, Modifier.padding(start = 8.dp))
+                }
+            }
+        }
+
         Section("Text-to-speech") {
             LabeledSlider("Speed", s.ttsSpeed, 0.5f..2.0f) { vm.setTtsSpeed(it) }
             LabeledSlider("Pitch", s.ttsPitch, 0.5f..2.0f) { vm.setTtsPitch(it) }
+            Text("Narration language", style = MaterialTheme.typography.bodyMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                SpeechLanguage.entries.forEach { lang ->
+                    FilterChip(
+                        selected = s.ttsLanguage == lang,
+                        onClick = { vm.setTtsLanguage(lang) },
+                        label = { Text(lang.label) },
+                    )
+                }
+            }
+        }
+
+        Section("Manga text recognition") {
+            Text(
+                "Script used to read text off manga pages for narration and translation.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OcrScriptSetting.entries.forEach { script ->
+                    FilterChip(
+                        selected = s.ocrScript == script,
+                        onClick = { vm.setOcrScript(script) },
+                        label = { Text(script.label) },
+                    )
+                }
+            }
+        }
+
+        Section("Translation") {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Translate chapters", Modifier.weight(1f))
+                Switch(checked = s.translateEnabled, onCheckedChange = { vm.setTranslateEnabled(it) })
+            }
+            Text(
+                "Translates Japanese, Korean, Chinese or English text into your chosen language. " +
+                    "Language packs download once over Wi-Fi (~30 MB each) and then work offline.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TranslateLanguage.entries.forEach { lang ->
+                    FilterChip(
+                        selected = s.translateTarget == lang,
+                        onClick = { vm.setTranslateTarget(lang) },
+                        label = { Text(lang.label) },
+                    )
+                }
+            }
         }
 
         BackupSection(factory)
@@ -164,3 +235,4 @@ private fun LabeledSlider(
         Slider(value = value, onValueChange = onChange, valueRange = range)
     }
 }
+

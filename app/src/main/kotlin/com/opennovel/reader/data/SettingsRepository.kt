@@ -24,9 +24,50 @@ data class ReaderSettings(
     val ttsPitch: Float = 1.0f,
     val ttsVoice: String = "",
     val keepScreenOn: Boolean = true,
+    /** How manga/comic pages are laid out and paged. */
+    val readingMode: ReadingMode = ReadingMode.WEBTOON,
+    /** Script used when OCR'ing manga pages for narration/translation. */
+    val ocrScript: OcrScriptSetting = OcrScriptSetting.LATIN,
+    /** Language the narrator speaks in. */
+    val ttsLanguage: SpeechLanguage = SpeechLanguage.ENGLISH,
+    /** Translate recognised/【novel】text before displaying or speaking it. */
+    val translateEnabled: Boolean = false,
+    val translateTarget: TranslateLanguage = TranslateLanguage.ENGLISH,
 )
 
 enum class ThemeMode { LIGHT, DARK, SYSTEM, SEPIA, BLACK }
+
+/**
+ * Page layout for image chapters.
+ *  - [WEBTOON]/[CONTINUOUS_VERTICAL]: scrolling strips, for manhwa/manhua.
+ *  - [PAGED_LTR]/[PAGED_RTL]: one page at a time; RTL is the Japanese manga convention.
+ *  - [PAGED_VERTICAL]: e-reader style, tap/swipe up-down through discrete pages.
+ */
+enum class ReadingMode(val label: String) {
+    WEBTOON("Webtoon (continuous)"),
+    CONTINUOUS_VERTICAL("Vertical strip (gapped)"),
+    PAGED_LTR("Paged — left to right"),
+    PAGED_RTL("Paged — right to left"),
+    PAGED_VERTICAL("Paged — vertical (e-reader)"),
+}
+
+/** OCR model to use; manga lettering differs enough per script to matter. */
+enum class OcrScriptSetting(val label: String) {
+    LATIN("Latin / English"),
+    JAPANESE("Japanese"),
+    KOREAN("Korean"),
+    CHINESE("Chinese"),
+}
+
+enum class SpeechLanguage(val label: String, val tag: String) {
+    ENGLISH("English", "en"),
+    HINDI("Hindi", "hi"),
+}
+
+enum class TranslateLanguage(val label: String, val code: String) {
+    ENGLISH("English", "en"),
+    HINDI("Hindi", "hi"),
+}
 
 class SettingsRepository(private val context: Context) {
 
@@ -40,8 +81,17 @@ class SettingsRepository(private val context: Context) {
             ttsPitch = p[TTS_PITCH] ?: 1.0f,
             ttsVoice = p[TTS_VOICE] ?: "",
             keepScreenOn = p[KEEP_SCREEN_ON] ?: true,
+            readingMode = enumOr(p[READING_MODE], ReadingMode.WEBTOON),
+            ocrScript = enumOr(p[OCR_SCRIPT], OcrScriptSetting.LATIN),
+            ttsLanguage = enumOr(p[TTS_LANGUAGE], SpeechLanguage.ENGLISH),
+            translateEnabled = p[TRANSLATE_ENABLED] ?: false,
+            translateTarget = enumOr(p[TRANSLATE_TARGET], TranslateLanguage.ENGLISH),
         )
     }
+
+    /** Tolerates stored values from older builds instead of crashing on rename. */
+    private inline fun <reified T : Enum<T>> enumOr(value: String?, fallback: T): T =
+        value?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
 
     suspend fun setFontScale(v: Float) = edit { it[FONT_SCALE] = v }
     suspend fun setLineSpacing(v: Float) = edit { it[LINE_SPACING] = v }
@@ -51,6 +101,11 @@ class SettingsRepository(private val context: Context) {
     suspend fun setTtsPitch(v: Float) = edit { it[TTS_PITCH] = v }
     suspend fun setTtsVoice(v: String) = edit { it[TTS_VOICE] = v }
     suspend fun setKeepScreenOn(v: Boolean) = edit { it[KEEP_SCREEN_ON] = v }
+    suspend fun setReadingMode(v: ReadingMode) = edit { it[READING_MODE] = v.name }
+    suspend fun setOcrScript(v: OcrScriptSetting) = edit { it[OCR_SCRIPT] = v.name }
+    suspend fun setTtsLanguage(v: SpeechLanguage) = edit { it[TTS_LANGUAGE] = v.name }
+    suspend fun setTranslateEnabled(v: Boolean) = edit { it[TRANSLATE_ENABLED] = v }
+    suspend fun setTranslateTarget(v: TranslateLanguage) = edit { it[TRANSLATE_TARGET] = v.name }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
@@ -65,6 +120,11 @@ class SettingsRepository(private val context: Context) {
         val TTS_PITCH = floatPreferencesKey("tts_pitch")
         val TTS_VOICE = stringPreferencesKey("tts_voice")
         val KEEP_SCREEN_ON = booleanPreferencesKey("keep_screen_on")
+        val READING_MODE = stringPreferencesKey("reading_mode")
+        val OCR_SCRIPT = stringPreferencesKey("ocr_script")
+        val TTS_LANGUAGE = stringPreferencesKey("tts_language")
+        val TRANSLATE_ENABLED = booleanPreferencesKey("translate_enabled")
+        val TRANSLATE_TARGET = stringPreferencesKey("translate_target")
 
         @Suppress("unused") val UNUSED_INT = intPreferencesKey("reserved")
     }
