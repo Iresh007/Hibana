@@ -2,10 +2,12 @@
 # Toolchain is pinned to what IReader extensions are built against (Kotlin 2.2.21,
 # ktor 3.3.2, serialization 1.9.0) so their published source-api artifact and the
 # extension dex resolve against matching Kotlin metadata.
-agp = "8.7.3"
+agp = "8.9.1"
 kotlin = "2.2.21"
 ksp = "2.2.21-2.0.5"
-coreKtx = "1.15.0"
+# Pulled to 1.17.0 transitively by the IReader/ktor stack; 1.17 mandates
+# compileSdk 36 and AGP 8.9.1+, which is why both are pinned above.
+coreKtx = "1.17.0"
 lifecycle = "2.8.7"
 activityCompose = "1.9.3"
 composeBom = "2024.12.01"

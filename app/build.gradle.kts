@@ -8,15 +8,17 @@ plugins {
 
 android {
     namespace = "com.opennovel.reader"
-    // 35 is required by Room 2.7.x / current AndroidX; targetSdk stays at 34 so
-    // no runtime behaviour changes ship with the toolchain bump.
-    compileSdk = 35
+    // 36 is mandated by androidx.core 1.17 (pulled in by the IReader stack).
+    // targetSdk stays at 34 so no runtime behaviour changes ship with this.
+    compileSdk = 36
 
     defaultConfig {
         // User-facing app identity is Hibana (話). The code namespace stays
         // com.opennovel.reader to avoid a risky package move across the source tree.
         applicationId = "com.hibana.app"
-        minSdk = 24
+        // 26 is the floor declared by io.github.ireaderorg:source-api-android.
+        // Supporting IReader extensions costs Android 7.x (API 24-25) support.
+        minSdk = 26
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
