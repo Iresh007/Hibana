@@ -131,10 +131,27 @@ Actions*:
 
 | Secret | Value |
 |---|---|
-| `SIGNING_KEYSTORE` | base64 of the `.jks` — `base64 -w0 hibana-release.jks` (macOS: `base64 -i`) |
+| `SIGNING_KEYSTORE` | base64 of the `.jks` (see below) |
 | `SIGNING_KEY_ALIAS` | the alias, e.g. `hibana` |
 | `SIGNING_KEY_PASSWORD` | key password |
 | `SIGNING_STORE_PASSWORD` | keystore password |
+
+To produce the base64:
+
+```powershell
+# Windows PowerShell — use an ABSOLUTE path. .NET resolves relative paths against
+# the process working directory, which `cd` does not change, so a relative path
+# here fails with a confusing "could not find file" pointing at some other folder.
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("C:\path\to\hibana-release.jks")) | Set-Clipboard
+(Get-Clipboard).Length   # sanity check: expect a few thousand characters
+```
+
+```bash
+# Linux
+base64 -w0 hibana-release.jks
+# macOS
+base64 -i hibana-release.jks
+```
 
 ### Cutting a release
 
