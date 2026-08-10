@@ -1,6 +1,5 @@
 package eu.kanade.tachiyomi.source
 
-import androidx.preference.PreferenceScreen
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
@@ -32,11 +31,6 @@ interface CatalogueSource : Source {
     suspend fun getLatestUpdates(page: Int): MangasPage = throw UnsupportedOperationException("Not implemented")
 
     fun getFilterList(): FilterList = FilterList()
-}
-
-/** A source that exposes user-configurable preferences. */
-interface ConfigurableSource : Source {
-    fun setupPreferenceScreen(screen: PreferenceScreen)
 }
 
 /** Marker: source is not rate-metered (affects Mihon scheduling only). */

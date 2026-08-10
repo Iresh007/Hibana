@@ -50,14 +50,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -77,9 +73,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.opennovel.reader.data.db.ContentType
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.opennovel.reader.data.AppSection
 import com.opennovel.reader.data.LibraryDisplayMode
 import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.NovelEntity
@@ -113,8 +109,7 @@ fun LibraryScreen(
     val filters by vm.filters.collectAsStateWithLifecycle()
     val chapterCount by vm.visibleChapterCount.collectAsStateWithLifecycle()
     val categoryCounts by vm.categoryCounts.collectAsStateWithLifecycle()
-    val contentFilter by vm.contentFilter.collectAsStateWithLifecycle()
-    val hasMixed by vm.hasMixedContent.collectAsStateWithLifecycle()
+    val section by vm.activeSection.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val inSelectionMode = selection.isNotEmpty()
@@ -188,29 +183,6 @@ fun LibraryScreen(
             )
         }
 
-        // Comics / novels narrowing, shown only when the library actually holds
-        // both. One shelf with a filter rather than two separate sections: the
-        // two kinds differ only in which reader opens them, and everything
-        // around them — categories, updates, history, search — is shared.
-        if (hasMixed) {
-            SingleChoiceSegmentedButtonRow(
-                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-            ) {
-                val segments = listOf(
-                    ContentType.UNKNOWN to "All",
-                    ContentType.COMIC to "Comics",
-                    ContentType.NOVEL to "Novels",
-                )
-                segments.forEachIndexed { index, (type, label) ->
-                    SegmentedButton(
-                        selected = contentFilter == type,
-                        onClick = { vm.setContentFilter(type) },
-                        shape = SegmentedButtonDefaults.itemShape(index, segments.size),
-                    ) { Text(label) }
-                }
-            }
-        }
-
         // Category tabs (Mihon-style) — only when the user has created categories.
         val tabs = remember(categories) {
             listOf(CategoryEntity(DEFAULT_CATEGORY_ID, "Default")) + categories
@@ -277,7 +249,7 @@ fun LibraryScreen(
             Box(Modifier.fillMaxSize())
         } else when {
             novels.isEmpty() && query.isNotBlank() -> NoResults(query)
-            novels.isEmpty() -> EmptyLibrary()
+            novels.isEmpty() -> EmptyLibrary(section)
             else -> {
                 // Grid density / list layout, as Mihon offers.
                 val cellSize = when (settings.libraryDisplayMode) {
@@ -582,7 +554,11 @@ private fun AssignCategoriesDialog(
     onDismiss: () -> Unit,
 ) {
     var selected by remember { mutableStateOf<Set<Long>>(emptySet()) }
-    remember { loadCurrent { selected = it } }
+    // The load is a side effect, not a remembered value. Phrasing it as
+    // `remember { … }` both discards a Unit into the composition (which lint
+    // rejects) and re-fires whenever the key set changes rather than once when
+    // the dialog opens.
+    LaunchedEffect(Unit) { loadCurrent { selected = it } }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -810,17 +786,25 @@ private fun NovelListRow(
 }
 
 @Composable
-private fun EmptyLibrary() {
+private fun EmptyLibrary(section: AppSection) {
+    // Named for the section, because with nothing installed the shelf is empty in
+    // both and a generic "add something" gives no clue that the extension the
+    // user needs is the one for *this* half of the app.
+    val what = if (section == AppSection.COMIC) "manga or manhwa" else "novels"
     Box(Modifier.fillMaxSize(), Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp),
+        ) {
             Icon(
                 Icons.AutoMirrored.Filled.MenuBook,
                 contentDescription = null,
                 modifier = Modifier.padding(8.dp),
             )
-            Text("Your library is empty", style = MaterialTheme.typography.titleMedium)
+            Text("No $what yet", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Head to Browse to add novels",
+                "Install a ${section.label} extension from More → Extensions, " +
+                    "then add titles from Browse.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )

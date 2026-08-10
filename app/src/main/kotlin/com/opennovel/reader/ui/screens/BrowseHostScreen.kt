@@ -27,12 +27,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opennovel.reader.ui.BrowseViewModel
+import com.opennovel.reader.ui.SectionScopeViewModel
 
 /**
  * Browse hub with Mihon's three tabs.
@@ -93,13 +95,25 @@ private fun MigrateSourcePicker(
     factory: ViewModelProvider.Factory,
     onPickSource: (Long) -> Unit,
 ) {
+    val context = LocalContext.current
     val vm: BrowseViewModel = viewModel(factory = factory)
-    val sourcesInUse by vm.librarySources.collectAsStateWithLifecycle()
+    val sectionVm: SectionScopeViewModel =
+        viewModel(factory = remember(context) { SectionScopeViewModel.factory(context) })
+    val allSourcesInUse by vm.librarySources.collectAsStateWithLifecycle()
+    val section by sectionVm.section.collectAsStateWithLifecycle()
+    val sectionSourceIds by sectionVm.sourceIds.collectAsStateWithLifecycle()
+
+    // Migration only ever moves an entry sideways within its own section, so the
+    // other section's sources are not offered as starting points either.
+    val sourcesInUse = remember(allSourcesInUse, sectionSourceIds) {
+        allSourcesInUse.filter { it.sourceId in sectionSourceIds }
+    }
 
     if (sourcesInUse.isEmpty()) {
         Box(Modifier.fillMaxSize(), Alignment.Center) {
             Text(
-                "No sources in use.\nAdd something to your library first.",
+                "No ${section.label} sources in use.\n" +
+                    "Add something to your library first.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(32.dp),

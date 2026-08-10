@@ -295,6 +295,9 @@ private fun SourcesStep(
     onNext: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val section by vm.section.collectAsStateWithLifecycle()
+    val available by vm.availableSources.collectAsStateWithLifecycle()
+
     Column(modifier) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
@@ -302,28 +305,44 @@ private fun SourcesStep(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                if (allSelected) "Searching all sources" else "Searching selected sources",
+                if (allSelected) {
+                    "Searching all ${section.label} sources"
+                } else {
+                    "Searching selected sources"
+                },
                 style = MaterialTheme.typography.bodyMedium,
             )
             TextButton(onClick = vm::useAllSources) { Text("All") }
         }
         HorizontalDivider()
-        LazyColumn(Modifier.weight(1f)) {
-            items(vm.availableSources, key = { it.sourceId }) { source ->
-                val on = vm.isSourceSelected(source.sourceId)
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickable { vm.toggleTargetSource(source.sourceId) }
-                        .padding(horizontal = 12.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Checkbox(checked = on, onCheckedChange = { vm.toggleTargetSource(source.sourceId) })
-                    Text(source.sourceName, style = MaterialTheme.typography.bodyMedium)
+        if (available.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), Alignment.Center) {
+                Text(
+                    "No ${section.label} sources installed.\n" +
+                        "Install one from Browse › Extensions to migrate onto it.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    modifier = Modifier.padding(32.dp),
+                )
+            }
+        } else {
+            LazyColumn(Modifier.weight(1f)) {
+                items(available, key = { it.sourceId }) { source ->
+                    val on = vm.isSourceSelected(source.sourceId)
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clickable { vm.toggleTargetSource(source.sourceId) }
+                            .padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(checked = on, onCheckedChange = { vm.toggleTargetSource(source.sourceId) })
+                        Text(source.sourceName, style = MaterialTheme.typography.bodyMedium)
+                    }
                 }
             }
         }
-        StepButton("Search", enabled = true, onClick = onNext)
+        StepButton("Search", enabled = available.isNotEmpty(), onClick = onNext)
     }
 }
 

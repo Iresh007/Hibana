@@ -42,6 +42,19 @@ interface NovelDao {
 
     @Query("UPDATE novels SET contentType = :type WHERE id = :novelId")
     suspend fun setContentType(novelId: Long, type: String)
+
+    /**
+     * Entries cached while browsing that were never added to the library.
+     *
+     * Kept separate from a blanket delete so "clear database" can never remove
+     * something the user actually shelved — the chapters and history of library
+     * entries hang off them by foreign key and would cascade away with them.
+     */
+    @Query("SELECT COUNT(*) FROM novels WHERE inLibrary = 0")
+    suspend fun countNotInLibrary(): Int
+
+    @Query("DELETE FROM novels WHERE inLibrary = 0")
+    suspend fun deleteNotInLibrary(): Int
 }
 
 @Dao
@@ -88,7 +101,7 @@ interface ChapterDao {
         SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
                c.read AS read, c.bookmark AS bookmark, c.downloaded AS downloaded,
                c.dateUpload AS dateUpload, c.dateFetch AS dateFetch,
-               n.title AS novelTitle, n.coverUrl AS coverUrl
+               n.title AS novelTitle, n.coverUrl AS coverUrl, n.contentType AS contentType
         FROM chapters c
         JOIN novels n ON n.id = c.novelId
         WHERE n.inLibrary = 1 AND c.dateFetch > n.dateAdded
@@ -177,7 +190,7 @@ interface ChapterDao {
         SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
                c.read AS read, c.bookmark AS bookmark, c.downloaded AS downloaded,
                c.dateUpload AS dateUpload, c.dateFetch AS dateFetch,
-               n.title AS novelTitle, n.coverUrl AS coverUrl
+               n.title AS novelTitle, n.coverUrl AS coverUrl, n.contentType AS contentType
         FROM chapters c
         JOIN novels n ON n.id = c.novelId
         WHERE c.downloaded = 1
@@ -188,6 +201,13 @@ interface ChapterDao {
 
     @Query("SELECT id FROM chapters WHERE novelId = :novelId AND downloaded = 0 ORDER BY sourceOrder ASC")
     suspend fun undownloadedIds(novelId: Long): List<Long>
+
+    /** Every stored download path, for clearing the on-disk cache. */
+    @Query("SELECT downloadPath FROM chapters WHERE downloaded = 1 AND downloadPath IS NOT NULL")
+    suspend fun allDownloadPaths(): List<String>
+
+    @Query("UPDATE chapters SET downloaded = 0, downloadPath = NULL WHERE downloaded = 1")
+    suspend fun clearAllDownloadFlags(): Int
 
     /** Unread/downloaded tallies per novel, for library cover badges. */
     @Query(
@@ -259,7 +279,8 @@ interface HistoryDao {
     @Query(
         """
         SELECT h.novelId AS novelId, h.chapterId AS chapterId, h.readAt AS readAt,
-               n.title AS title, n.coverUrl AS coverUrl, c.name AS chapterName
+               n.title AS title, n.coverUrl AS coverUrl, c.name AS chapterName,
+               n.contentType AS contentType
         FROM history h
         JOIN novels n ON n.id = h.novelId
         JOIN chapters c ON c.id = h.chapterId

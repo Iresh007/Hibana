@@ -4,14 +4,24 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.opennovel.reader.NovelReaderApp
+import com.opennovel.reader.data.AppSection
 import com.opennovel.reader.data.AutoBackupFrequency
+import com.opennovel.reader.data.MaintenanceRepository
+import com.opennovel.reader.data.LibraryDisplayMode
 import com.opennovel.reader.data.PageLayout
 import com.opennovel.reader.data.ReaderSettings
+import com.opennovel.reader.data.ReadingMode
+import com.opennovel.reader.data.SectionRepository
+import com.opennovel.reader.data.SectionSettings
 import com.opennovel.reader.data.SettingsRepository
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -76,6 +86,122 @@ class SettingsSectionViewModel(private val repo: SettingsRepository) : ViewModel
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
                     SettingsSectionViewModel(SettingsRepository(appContext)) as T
+            }
+        }
+    }
+}
+
+/**
+ * Backs the destructive housekeeping rows in Settings.
+ *
+ * These rows previously rendered permanently disabled with a TODO, which reads
+ * as a broken app rather than a missing feature. Each action reports what it
+ * removed, so a row that legitimately had nothing to do says so instead of
+ * appearing to fail.
+ */
+class MaintenanceViewModel(private val repo: MaintenanceRepository) : ViewModel() {
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    /** Size on disk, refreshed on demand so the row can state the cost up front. */
+    private val _downloadedSize = MutableStateFlow(0L)
+    val downloadedSize: StateFlow<Long> = _downloadedSize.asStateFlow()
+
+    private val _cachedEntries = MutableStateFlow(0)
+    val cachedEntries: StateFlow<Int> = _cachedEntries.asStateFlow()
+
+    fun consumeMessage() { _message.value = null }
+
+    fun refreshCounts() = viewModelScope.launch {
+        _downloadedSize.value = runCatching { repo.downloadedSize() }.getOrDefault(0L)
+        _cachedEntries.value = runCatching { repo.cachedEntryCount() }.getOrDefault(0)
+    }
+
+    fun clearDownloadCache() = run {
+        _busy.value = true
+        viewModelScope.launch {
+            _message.value = runCatching { repo.clearDownloadCache().describe("download") }
+                .getOrElse { "Could not clear downloads: ${it.message}" }
+            _busy.value = false
+            refreshCounts()
+        }
+    }
+
+    fun clearCachedEntries() = run {
+        _busy.value = true
+        viewModelScope.launch {
+            _message.value = runCatching { repo.clearCachedEntries().describe("cached entry") }
+                .getOrElse { "Could not clear the database: ${it.message}" }
+            _busy.value = false
+            refreshCounts()
+        }
+    }
+
+    companion object {
+        fun factory(context: Context): ViewModelProvider.Factory {
+            val app = context.applicationContext as NovelReaderApp
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    MaintenanceViewModel(app.container.maintenanceRepository) as T
+            }
+        }
+    }
+}
+
+/**
+ * Edits [SectionSettings] for one [AppSection] at a time.
+ *
+ * The edited section is deliberately independent of the section the user is
+ * currently browsing: someone reading manga must still be able to fix their
+ * novel font size without leaving settings. It only *starts* on the active
+ * section because that is the likelier target.
+ *
+ * Builds its own [SectionRepository] for the same reason
+ * [SettingsSectionViewModel] does — the shared factory is off-limits here, and
+ * DataStore hands back one process-wide instance per file name, so this reads
+ * and writes the container's store.
+ */
+class SectionPrefsViewModel(private val repo: SectionRepository) : ViewModel() {
+
+    private val _editedSection = MutableStateFlow(AppSection.COMIC)
+    val editedSection: StateFlow<AppSection> = _editedSection.asStateFlow()
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val settings: StateFlow<SectionSettings> = _editedSection
+        .flatMapLatest { repo.settings(it) }
+        .stateIn(viewModelScope, SharingStarted.Eagerly, SectionSettings())
+
+    init {
+        viewModelScope.launch { _editedSection.value = repo.activeSection.first() }
+    }
+
+    fun editSection(section: AppSection) { _editedSection.value = section }
+
+    private fun edit(block: suspend (AppSection) -> Unit) {
+        val target = _editedSection.value
+        viewModelScope.launch { block(target) }
+    }
+
+    fun setFontScale(v: Float) = edit { repo.setFontScale(it, v) }
+    fun setLineSpacing(v: Float) = edit { repo.setLineSpacing(it, v) }
+    fun setFontFamily(v: String) = edit { repo.setFontFamily(it, v) }
+    fun setReadingMode(v: ReadingMode) = edit { repo.setReadingMode(it, v) }
+    fun setKeepScreenOn(v: Boolean) = edit { repo.setKeepScreenOn(it, v) }
+    fun setLibraryDisplayMode(v: LibraryDisplayMode) = edit { repo.setLibraryDisplayMode(it, v) }
+    fun setShowLibraryBadges(v: Boolean) = edit { repo.setShowLibraryBadges(it, v) }
+
+    companion object {
+        fun factory(context: Context): ViewModelProvider.Factory {
+            val appContext = context.applicationContext
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    SectionPrefsViewModel(SectionRepository(appContext)) as T
             }
         }
     }

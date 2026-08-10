@@ -56,9 +56,18 @@ fun BrowseScreen(
     val context = LocalContext.current
     val vm: SourceListViewModel = viewModel(factory = SourceListViewModel.factory(context))
     val sources by vm.sources.collectAsStateWithLifecycle()
+    val section by vm.section.collectAsStateWithLifecycle()
 
     var openSource by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
     var webViewSource by remember { mutableStateOf<BrowseSource?>(null) }
+    // Hosted here for the same reason as the browse/WebView screens: RootNav has
+    // no destination for it, and this screen is what knows the source id.
+    var preferencesSourceId by remember { mutableStateOf<Long?>(null) }
+
+    preferencesSourceId?.let { id ->
+        SourcePreferencesScreen(sourceId = id, onBack = { preferencesSourceId = null })
+        return
+    }
 
     webViewSource?.let { source ->
         SourceWebViewScreen(
@@ -85,7 +94,11 @@ fun BrowseScreen(
     if (sources.isEmpty()) {
         Box(Modifier.fillMaxSize(), Alignment.Center) {
             Text(
-                "No sources yet.\nInstall an extension from the Extensions tab.",
+                // Named per section so an empty list reads as "none of this
+                // kind" rather than "the app found nothing at all" — the other
+                // section may well be full.
+                "No ${section.label} sources yet.\n" +
+                    "Install a ${section.label} extension from the Extensions tab.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(32.dp),
@@ -110,6 +123,7 @@ fun BrowseScreen(
                     onOpenInBrowser = { vm.openInBrowser(source.baseUrl) },
                     onShare = { vm.share(source.baseUrl, source.name) },
                     onClearCookies = { vm.clearCookies(source.baseUrl) },
+                    onSettings = { preferencesSourceId = source.id },
                 )
             }
         }
@@ -126,6 +140,7 @@ fun BrowseScreen(
                     onOpenInBrowser = { vm.openInBrowser(source.baseUrl) },
                     onShare = { vm.share(source.baseUrl, source.name) },
                     onClearCookies = { vm.clearCookies(source.baseUrl) },
+                    onSettings = { preferencesSourceId = source.id },
                 )
             }
         }
@@ -157,6 +172,7 @@ private fun SourceRow(
     onOpenInBrowser: () -> Unit,
     onShare: () -> Unit,
     onClearCookies: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -199,6 +215,15 @@ private fun SourceRow(
         }
 
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            // First entry because an unconfigured source (no mirror set) looks
+            // broken until this is used, so it is the most likely reason to be
+            // in this menu at all.
+            if (source.hasPreferences) {
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    onClick = { menuOpen = false; onSettings() },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(if (source.pinned) "Unpin" else "Pin") },
                 onClick = { menuOpen = false; onTogglePin() },

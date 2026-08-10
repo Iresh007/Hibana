@@ -11,9 +11,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.opennovel.reader.NovelReaderApp
+import com.opennovel.reader.data.AppSection
+import com.opennovel.reader.extension.SourcePreferences
 import com.opennovel.reader.migration.MigrationCandidate
 import com.opennovel.reader.migration.MigrationOptions
 import com.opennovel.reader.migration.MigrationSearch
+import com.opennovel.reader.source.ImageChapterSource
+import com.opennovel.reader.source.Source
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -43,7 +47,54 @@ data class BrowseSource(
     val pkgId: String,
     val supportsLatest: Boolean,
     val pinned: Boolean,
+    /** Whether the extension declares a settings screen for this source. */
+    val hasPreferences: Boolean = false,
 )
+
+/**
+ * Which section a source belongs to, decided by what it can actually serve
+ * rather than by the ecosystem it shipped in.
+ *
+ * A [Source] carries no ecosystem, and the ecosystems are not clean proxies
+ * anyway. Only comic sources can produce page images, so the same capability
+ * test [com.opennovel.reader.data.LibraryRepository] uses to classify entries
+ * also decides which catalogue a source appears in — a source and the entries
+ * taken from it can then never land in different sections.
+ */
+internal fun sectionOf(source: Source): AppSection =
+    if (source is ImageChapterSource) AppSection.COMIC else AppSection.NOVEL
+
+/**
+ * The active section and the sources that belong to it.
+ *
+ * Separate from the screens' own ViewModels because Browse, Extensions and
+ * Migrate each need the same scope and none of them owns it.
+ */
+class SectionScopeViewModel(appContext: Context) : ViewModel() {
+
+    private val container = (appContext as NovelReaderApp).container
+
+    val section: StateFlow<AppSection> = container.sectionRepository.activeSection
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSection.COMIC)
+
+    val sourceIds: StateFlow<Set<Long>> = combine(
+        container.sourceManager.sources,
+        container.sectionRepository.activeSection,
+    ) { sources, active ->
+        sources.filter { sectionOf(it) == active }.map { it.id }.toSet()
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
+
+    companion object {
+        fun factory(context: Context): ViewModelProvider.Factory {
+            val app = context.applicationContext
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    SectionScopeViewModel(app) as T
+            }
+        }
+    }
+}
 
 /**
  * Backs the Mihon-style source list: what's installed, which are pinned, and the
@@ -59,12 +110,16 @@ class SourceListViewModel(private val appContext: Context) : ViewModel() {
     private val pinnedIds: Flow<Set<String>> =
         appContext.browsePrefs.data.map { it[PINNED_SOURCES] ?: emptySet() }
 
+    val section: StateFlow<AppSection> = container.sectionRepository.activeSection
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSection.COMIC)
+
     val sources: StateFlow<List<BrowseSource>> = combine(
         container.sourceManager.sources,
         container.extensionManager.installed,
         pinnedIds,
-    ) { sources, installed, pins ->
-        sources.map { source ->
+        container.sectionRepository.activeSection,
+    ) { sources, installed, pins, active ->
+        sources.filter { sectionOf(it) == active }.map { source ->
             BrowseSource(
                 id = source.id,
                 name = source.name,
@@ -77,6 +132,7 @@ class SourceListViewModel(private val appContext: Context) : ViewModel() {
                 }?.pkgId.orEmpty(),
                 supportsLatest = source.supportsLatest,
                 pinned = source.id.toString() in pins,
+                hasPreferences = SourcePreferences.isConfigurable(source),
             )
         }.sortedBy { it.name.lowercase() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
@@ -173,6 +229,9 @@ class MigrationFlowViewModel(appContext: Context) : ViewModel() {
     private val migrations = container.migrationManager
     private val sourceManager = container.sourceManager
 
+    val section: StateFlow<AppSection> = container.sectionRepository.activeSection
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AppSection.COMIC)
+
     // --- step 1: which entries ---
 
     private val _entries = MutableStateFlow<List<MigrateEntry>?>(null)
@@ -208,14 +267,25 @@ class MigrationFlowViewModel(appContext: Context) : ViewModel() {
 
     // --- step 3: where to look ---
 
-    val availableSources: List<LibrarySourceUsage> = sourceManager.catalogueSources()
-        .map { LibrarySourceUsage(sourceId = it.id, sourceName = it.name, count = 0) }
-        .sortedBy { it.sourceName.lowercase() }
+    /**
+     * Only the active section's sources are offered: a novel migrated onto a
+     * manga source would be unreadable, so those targets are never a valid
+     * choice rather than merely a bad one.
+     */
+    val availableSources: StateFlow<List<LibrarySourceUsage>> = combine(
+        sourceManager.sources,
+        container.sectionRepository.activeSection,
+    ) { sources, active ->
+        sources
+            .filter { sectionOf(it) == active }
+            .map { LibrarySourceUsage(sourceId = it.id, sourceName = it.name, count = 0) }
+            .sortedBy { it.sourceName.lowercase() }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /**
-     * Sources to search. Null means "all" — distinct from an empty set, which
-     * means the user deselected everything and should get no results rather than
-     * silently falling back to all.
+     * Sources to search. Null means "every source in this section" — distinct
+     * from an empty set, which means the user deselected everything and should
+     * get no results rather than silently falling back to all.
      */
     private val _targetSources = MutableStateFlow<Set<Long>?>(null)
     val targetSources: StateFlow<Set<Long>?> = _targetSources.asStateFlow()
@@ -223,7 +293,7 @@ class MigrationFlowViewModel(appContext: Context) : ViewModel() {
     fun useAllSources() { _targetSources.value = null }
 
     fun toggleTargetSource(id: Long) {
-        val current = _targetSources.value ?: availableSources.map { it.sourceId }.toSet()
+        val current = _targetSources.value ?: availableSources.value.map { it.sourceId }.toSet()
         _targetSources.value = if (id in current) current - id else current + id
     }
 
@@ -253,12 +323,20 @@ class MigrationFlowViewModel(appContext: Context) : ViewModel() {
         _searches.value = emptyList()
         viewModelScope.launch {
             val results = mutableListOf<MigrationSearch>()
+            // "All" still means all *in this section*; the manager would
+            // otherwise fall back to every registered source.
+            val active = container.sectionRepository.activeSection.first()
+            val targets = _targetSources.value
+                ?: sourceManager.catalogueSources()
+                    .filter { sectionOf(it) == active }
+                    .map { it.id }
+                    .toSet()
             novelIds.forEachIndexed { index, id ->
                 _progress.value = "Searching ${index + 1} / ${novelIds.size}"
                 repo.getNovel(id)?.let { novel ->
                     results += migrations.findCandidates(
                         novel = novel,
-                        targetSourceIds = _targetSources.value,
+                        targetSourceIds = targets,
                     )
                 }
                 _searches.value = results.toList()

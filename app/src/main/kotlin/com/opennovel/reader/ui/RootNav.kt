@@ -1,6 +1,7 @@
 package com.opennovel.reader.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -14,11 +15,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opennovel.reader.data.AppSection
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -40,6 +50,7 @@ import com.opennovel.reader.ui.screens.MoreScreen
 import com.opennovel.reader.ui.screens.NovelDetailScreen
 import com.opennovel.reader.ui.screens.ReaderScreen
 import com.opennovel.reader.ui.screens.SettingsScreen
+import com.opennovel.reader.ui.screens.SourcePreferencesScreen
 import com.opennovel.reader.ui.screens.SettingsSectionScreen
 import com.opennovel.reader.ui.screens.StatsScreen
 import com.opennovel.reader.ui.screens.UpcomingScreen
@@ -90,6 +101,7 @@ private fun HomeTabs(factory: ViewModelProvider.Factory, nav: NavHostController)
     val scope = rememberCoroutineScope()
 
     Scaffold(
+        topBar = { SectionSwitcher(factory) },
         bottomBar = {
             NavigationBar {
                 bottomDests.forEachIndexed { index, dest ->
@@ -164,6 +176,33 @@ private fun HomeTabs(factory: ViewModelProvider.Factory, nav: NavHostController)
     }
 }
 
+/**
+ * Switches the whole shell between comics and prose.
+ *
+ * It sits above the pager rather than becoming a sixth bottom tab because it is
+ * not a destination: it re-scopes the five tabs that already exist. Hosting it in
+ * the shell also means it stays put — and keeps its state — while pages swap.
+ */
+@Composable
+private fun SectionSwitcher(factory: ViewModelProvider.Factory) {
+    val vm: SectionViewModel = viewModel(factory = factory)
+    val active by vm.active.collectAsStateWithLifecycle()
+
+    Surface(tonalElevation = 2.dp) {
+        SingleChoiceSegmentedButtonRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            AppSection.entries.forEachIndexed { index, section ->
+                SegmentedButton(
+                    selected = active == section,
+                    onClick = { vm.select(section) },
+                    shape = SegmentedButtonDefaults.itemShape(index, AppSection.entries.size),
+                ) { Text(section.label) }
+            }
+        }
+    }
+}
+
 /** Everything reached from a tab, sharing one back stack. */
 private fun NavGraphBuilder.detailRoutes(
     factory: ViewModelProvider.Factory,
@@ -214,6 +253,13 @@ private fun NavGraphBuilder.detailRoutes(
     }
     composable("extension_repos") {
         ExtensionReposScreen(factory = factory, onBack = { nav.popBackStack() })
+    }
+    // A real destination rather than content swapped inside Browse, so a source's
+    // settings get their own back-stack entry and the system back gesture
+    // returns to the list instead of leaving the tab.
+    composable("source_preferences/{sourceId}") { entry ->
+        val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
+        SourcePreferencesScreen(sourceId = id, onBack = { nav.popBackStack() })
     }
     composable("source/{sourceId}") { entry ->
         val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable

@@ -4,14 +4,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.opennovel.reader.data.AppContainer
+import com.opennovel.reader.data.AppSection
 import com.opennovel.reader.data.LibraryRepository
+import com.opennovel.reader.data.SectionRepository
 import com.opennovel.reader.data.ReaderSettings
 import com.opennovel.reader.data.RefreshOutcome
 import com.opennovel.reader.data.SettingsRepository
 import com.opennovel.reader.data.ThemeMode
 import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.ChapterEntity
+import com.opennovel.reader.data.db.ChapterSettingsDao
+import com.opennovel.reader.data.db.ChapterSettingsEntity
 import com.opennovel.reader.data.db.ContentType
+import com.opennovel.reader.data.db.NovelReaderDatabase
 import com.opennovel.reader.data.db.HistoryWithNovel
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.download.Downloader
@@ -38,12 +43,14 @@ import kotlinx.coroutines.launch
 class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
+        modelClass.isAssignableFrom(SectionViewModel::class.java) ->
+            SectionViewModel(c.sectionRepository)
         modelClass.isAssignableFrom(LibraryViewModel::class.java) ->
-            LibraryViewModel(c.libraryRepository, c.settingsRepository)
+            LibraryViewModel(c.libraryRepository, c.settingsRepository, c.sectionRepository)
         modelClass.isAssignableFrom(HistoryViewModel::class.java) ->
-            HistoryViewModel(c.libraryRepository)
+            HistoryViewModel(c.libraryRepository, c.sectionRepository)
         modelClass.isAssignableFrom(UpdatesViewModel::class.java) ->
-            UpdatesViewModel(c.libraryRepository, c.downloader, c.settingsRepository)
+            UpdatesViewModel(c.libraryRepository, c.downloader, c.settingsRepository, c.sectionRepository)
         modelClass.isAssignableFrom(DownloadsViewModel::class.java) ->
             DownloadsViewModel(c.libraryRepository, c.downloader)
         modelClass.isAssignableFrom(MigrationViewModel::class.java) ->
@@ -51,7 +58,15 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(BrowseViewModel::class.java) ->
             BrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(NovelDetailViewModel::class.java) ->
-            NovelDetailViewModel(c.libraryRepository, c.downloader)
+            // The DAO is taken straight off the database singleton rather than
+            // through LibraryRepository: chapter view state is screen-local
+            // preference data, and threading it through the repository would put
+            // it in the same layer as the library itself.
+            NovelDetailViewModel(
+                c.libraryRepository,
+                c.downloader,
+                c.chapterSettingsDao,
+            )
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(c.settingsRepository, c.appContext, c.translationManager)
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
@@ -105,6 +120,84 @@ enum class FilterState { IGNORED, INCLUDED, EXCLUDED;
     }
 }
 
+/** How an entry's chapter list is ordered, mirroring Mihon's chapter sort tab. */
+enum class ChapterSort(val label: String) {
+    NUMBER("By chapter number"),
+    UPLOAD_DATE("By upload date"),
+}
+
+/** Tri-state chapter filters for one entry, mirroring Mihon's filter tab. */
+data class ChapterFilters(
+    val downloaded: FilterState = FilterState.IGNORED,
+    val unread: FilterState = FilterState.IGNORED,
+    val bookmarked: FilterState = FilterState.IGNORED,
+) {
+    val active: Int
+        get() = listOf(downloaded, unread, bookmarked).count { it != FilterState.IGNORED }
+}
+
+/**
+ * One entry's chapter filter, sort and display choice.
+ *
+ * Modelled as a value rather than three flows so the whole thing round-trips to
+ * a single row, and so [applyTo] is the one place that decides what the list
+ * shows — the screen never re-derives it.
+ */
+data class ChapterListSettings(
+    val filters: ChapterFilters = ChapterFilters(),
+    val sort: ChapterSort = ChapterSort.NUMBER,
+    val descending: Boolean = false,
+    val fullTitle: Boolean = true,
+) {
+    fun applyTo(chapters: List<ChapterEntity>): List<ChapterEntity> {
+        val filtered = chapters.filter {
+            filters.downloaded.matches(it.downloaded) &&
+                filters.unread.matches(!it.read) &&
+                filters.bookmarked.matches(it.bookmark)
+        }
+        // sourceOrder breaks every tie: sources routinely report the same number
+        // or no date at all, and an unstable order would reshuffle the list on
+        // each emission of the chapter flow.
+        val ordered = when (sort) {
+            ChapterSort.NUMBER -> filtered.sortedWith(compareBy({ it.number }, { it.sourceOrder }))
+            ChapterSort.UPLOAD_DATE -> filtered.sortedWith(compareBy({ it.dateUpload }, { it.sourceOrder }))
+        }
+        // Reversing the result flips whichever sort is active, so one direction
+        // toggle covers both instead of doubling the option list.
+        return if (descending) ordered.asReversed() else ordered
+    }
+
+    fun toEntity(novelId: Long): ChapterSettingsEntity = ChapterSettingsEntity(
+        novelId = novelId,
+        filterDownloaded = filters.downloaded.name,
+        filterUnread = filters.unread.name,
+        filterBookmarked = filters.bookmarked.name,
+        sort = sort.name,
+        sortDescending = descending,
+        displayFullTitle = fullTitle,
+    )
+}
+
+private fun filterStateOf(name: String): FilterState =
+    FilterState.entries.firstOrNull { it.name == name } ?: FilterState.IGNORED
+
+/** A missing row means "never customised", so it reads back as the defaults. */
+private fun ChapterSettingsEntity?.toSettings(): ChapterListSettings =
+    if (this == null) {
+        ChapterListSettings()
+    } else {
+        ChapterListSettings(
+            filters = ChapterFilters(
+                downloaded = filterStateOf(filterDownloaded),
+                unread = filterStateOf(filterUnread),
+                bookmarked = filterStateOf(filterBookmarked),
+            ),
+            sort = ChapterSort.entries.firstOrNull { it.name == sort } ?: ChapterSort.NUMBER,
+            descending = sortDescending,
+            fullTitle = displayFullTitle,
+        )
+    }
+
 /** How many library entries come from a given source. */
 data class LibrarySourceUsage(
     val sourceId: Long,
@@ -123,10 +216,40 @@ data class LibraryFilters(
         get() = listOf(downloaded, unread, started, completed).count { it != FilterState.IGNORED }
 }
 
+/**
+ * Whether an entry of this stored [ContentType] name belongs to [section].
+ *
+ * [ContentType.UNKNOWN] matches both sections rather than neither: every row that
+ * predates the type column carries it, and excluding those would make an
+ * upgraded library look wiped, with no way to open an entry and correct it.
+ */
+private fun String?.inSection(section: AppSection): Boolean {
+    val type = ContentType.from(this)
+    return type == section.contentType || type == ContentType.UNKNOWN
+}
+
+/**
+ * Owns the active section for the home shell's switcher.
+ *
+ * Separate from the tab ViewModels so the switcher keeps its state while the
+ * pager swaps pages, and so every scoped screen reads the same single source.
+ */
+class SectionViewModel(private val sections: SectionRepository) : ViewModel() {
+
+    val active: StateFlow<AppSection> =
+        sections.activeSection.stateIn(viewModelScope, SharingStarted.Eagerly, AppSection.COMIC)
+
+    fun select(section: AppSection) = viewModelScope.launch { sections.setActiveSection(section) }
+}
+
 class LibraryViewModel(
     private val repo: LibraryRepository,
     private val settingsRepository: SettingsRepository,
+    sections: SectionRepository,
 ) : ViewModel() {
+
+    val activeSection: StateFlow<AppSection> =
+        sections.activeSection.stateIn(viewModelScope, SharingStarted.Eagerly, AppSection.COMIC)
 
     val settings: StateFlow<ReaderSettings> =
         settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
@@ -157,18 +280,8 @@ class LibraryViewModel(
     val filters: StateFlow<LibraryFilters> = _filters.asStateFlow()
 
     /**
-     * Comics / novels narrowing. Deliberately a filter over one library rather
-     * than two separate top-level sections: everything else — updates, history,
-     * downloads, categories, search — is shared, and splitting the app in two
-     * would duplicate all of it to separate two kinds of entry that behave
-     * identically outside the reader.
-     */
-    private val _contentFilter = MutableStateFlow(ContentType.UNKNOWN)
-    val contentFilter: StateFlow<ContentType> = _contentFilter.asStateFlow()
-
-    /**
-     * Category + search narrowing. Split from the filter/sort stage below
-     * because `combine` tops out at five flows, and splitting also means a
+     * Section + category + search narrowing. Split from the filter/sort stage
+     * below because `combine` tops out at five flows, and splitting also means a
      * filter change doesn't re-run category matching.
      */
     private val scopedLibrary =
@@ -177,8 +290,8 @@ class LibraryViewModel(
             assignments,
             _query,
             _selectedCategory,
-            _contentFilter,
-        ) { novels, refs, query, categoryId, contentFilter ->
+            activeSection,
+        ) { novels, refs, query, categoryId, section ->
             val byCategory = if (categoryId == DEFAULT_CATEGORY_ID) {
                 val assignedNovelIds = refs.map { it.novelId }.toSet()
                 novels.filter { it.id !in assignedNovelIds }
@@ -186,11 +299,7 @@ class LibraryViewModel(
                 val idsInCategory = refs.filter { it.categoryId == categoryId }.map { it.novelId }.toSet()
                 novels.filter { it.id in idsInCategory }
             }
-            val byType = if (contentFilter == ContentType.UNKNOWN) {
-                byCategory
-            } else {
-                byCategory.filter { ContentType.from(it.contentType) == contentFilter }
-            }
+            val byType = byCategory.filter { it.contentType.inSection(section) }
             if (query.isBlank()) byType
             else byType.filter { it.title.contains(query.trim(), ignoreCase = true) }
         }
@@ -198,22 +307,6 @@ class LibraryViewModel(
     /** Flips whichever sort is active, rather than doubling every sort option. */
     private val _reverseSort = MutableStateFlow(false)
     val reverseSort: StateFlow<Boolean> = _reverseSort.asStateFlow()
-
-    /** [ContentType.UNKNOWN] here means "no narrowing", i.e. show everything. */
-    fun setContentFilter(type: ContentType) { _contentFilter.value = type }
-
-    /**
-     * Whether the library actually holds both kinds. The segmented control is
-     * hidden otherwise — a comics-only library gains nothing from a control that
-     * can only ever filter to everything or nothing.
-     */
-    val hasMixedContent: StateFlow<Boolean> =
-        repo.observeLibrary()
-            .map { novels ->
-                val types = novels.map { ContentType.from(it.contentType) }.toSet()
-                ContentType.COMIC in types && ContentType.NOVEL in types
-            }
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /** Library after tri-state filters, ordered by the chosen sort. */
     val library: StateFlow<List<NovelEntity>> =
@@ -267,9 +360,14 @@ class LibraryViewModel(
 
     /** Entries per category tab, keyed by category id ([DEFAULT_CATEGORY_ID] = uncategorized). */
     val categoryCounts: StateFlow<Map<Long, Int>> =
-        combine(repo.observeLibrary(), assignments) { novels, refs ->
-            val assigned = refs.groupBy { it.categoryId }
-            val assignedIds = refs.map { it.novelId }.toSet()
+        combine(repo.observeLibrary(), assignments, activeSection) { all, refs, section ->
+            // Counted over the section's entries only, so a tab label never
+            // promises rows that the grid then filters away.
+            val novels = all.filter { it.contentType.inSection(section) }
+            val visibleIds = novels.map { it.id }.toSet()
+            val scopedRefs = refs.filter { it.novelId in visibleIds }
+            val assigned = scopedRefs.groupBy { it.categoryId }
+            val assignedIds = scopedRefs.map { it.novelId }.toSet()
             buildMap {
                 put(DEFAULT_CATEGORY_ID, novels.count { it.id !in assignedIds })
                 assigned.forEach { (categoryId, rows) ->
@@ -498,16 +596,24 @@ class MigrationViewModel(
     }
 }
 
-/** Newest chapters across the library, with a pull-to-refresh sweep of all sources. */
+/** Newest chapters in the active section, with a pull-to-refresh sweep of all sources. */
 class UpdatesViewModel(
     private val repo: LibraryRepository,
     private val downloader: Downloader,
     private val settings: SettingsRepository,
+    sections: SectionRepository,
 ) : ViewModel() {
 
+    val activeSection: StateFlow<AppSection> =
+        sections.activeSection.stateIn(viewModelScope, SharingStarted.Eagerly, AppSection.COMIC)
+
+    // Narrowed here rather than in SQL: the feed query is capped at 500 rows, and
+    // parameterising it by section would need a second query to keep the cap
+    // meaningful for each. The rows already carry contentType from the join.
     val updates: StateFlow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
-        repo.observeRecentChapters()
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        combine(repo.observeRecentChapters(), activeSection) { rows, section ->
+            rows.filter { it.contentType.inSection(section) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
@@ -602,10 +708,18 @@ class DownloadsViewModel(
     fun retry(chapterId: Long) = downloader.retry(chapterId)
 }
 
-class HistoryViewModel(private val repo: LibraryRepository) : ViewModel() {
+class HistoryViewModel(
+    private val repo: LibraryRepository,
+    sections: SectionRepository,
+) : ViewModel() {
+
+    val activeSection: StateFlow<AppSection> =
+        sections.activeSection.stateIn(viewModelScope, SharingStarted.Eagerly, AppSection.COMIC)
 
     val history: StateFlow<List<HistoryWithNovel>> =
-        repo.observeHistory().stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+        combine(repo.observeHistory(), activeSection) { rows, section ->
+            rows.filter { it.contentType.inSection(section) }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Resolve the resume chapter for a history entry, then invoke [onResolved]. */
     fun resume(novelId: Long, onResolved: (Long?) -> Unit) {
@@ -614,13 +728,20 @@ class HistoryViewModel(private val repo: LibraryRepository) : ViewModel() {
 
     fun remove(novelId: Long) = viewModelScope.launch { repo.removeHistory(novelId) }
 
-    fun clearAll() = viewModelScope.launch { repo.clearHistory() }
+    /**
+     * Clears only what this section shows. A blanket wipe would silently destroy
+     * the other section's history, which the user cannot see from here.
+     */
+    fun clearAll() = viewModelScope.launch {
+        history.value.forEach { repo.removeHistory(it.novelId) }
+    }
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
 class NovelDetailViewModel(
     private val repo: LibraryRepository,
     private val downloader: Downloader,
+    private val chapterSettingsDao: ChapterSettingsDao,
 ) : ViewModel() {
 
     private val novelId = MutableStateFlow<Long?>(null)
@@ -629,9 +750,55 @@ class NovelDetailViewModel(
         novelId.flatMapLatest { id -> if (id == null) flowOf(null) else repo.observeNovel(id) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val chapters: StateFlow<List<ChapterEntity>> =
+    /**
+     * Every chapter the source lists, in source order and unfiltered.
+     *
+     * Kept alongside the filtered list because gap detection has to run over the
+     * complete numbering: computing it after a filter would report every hidden
+     * chapter as missing.
+     */
+    val allChapters: StateFlow<List<ChapterEntity>> =
         novelId.flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repo.observeChapters(id) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val chapterSettings: StateFlow<ChapterListSettings> =
+        novelId.flatMapLatest { id ->
+            if (id == null) flowOf(null) else chapterSettingsDao.observe(id)
+        }
+            .map { it.toSettings() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ChapterListSettings())
+
+    /** What the list actually shows: filtered and ordered per the entry's choice. */
+    val chapters: StateFlow<List<ChapterEntity>> =
+        combine(allChapters, chapterSettings) { list, settings -> settings.applyTo(list) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun updateChapterSettings(transform: (ChapterListSettings) -> ChapterListSettings) {
+        val id = novelId.value ?: return
+        val next = transform(chapterSettings.value)
+        viewModelScope.launch { chapterSettingsDao.upsert(next.toEntity(id)) }
+    }
+
+    fun cycleDownloadedFilter() = updateChapterSettings {
+        it.copy(filters = it.filters.copy(downloaded = it.filters.downloaded.next()))
+    }
+
+    fun cycleUnreadFilter() = updateChapterSettings {
+        it.copy(filters = it.filters.copy(unread = it.filters.unread.next()))
+    }
+
+    fun cycleBookmarkedFilter() = updateChapterSettings {
+        it.copy(filters = it.filters.copy(bookmarked = it.filters.bookmarked.next()))
+    }
+
+    fun clearChapterFilters() = updateChapterSettings { it.copy(filters = ChapterFilters()) }
+
+    /** Picking the already-active sort flips its direction, as Mihon's sheet does. */
+    fun selectChapterSort(sort: ChapterSort) = updateChapterSettings {
+        if (it.sort == sort) it.copy(descending = !it.descending) else it.copy(sort = sort)
+    }
+
+    fun setChapterFullTitle(fullTitle: Boolean) = updateChapterSettings { it.copy(fullTitle = fullTitle) }
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()

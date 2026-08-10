@@ -12,6 +12,7 @@ import androidx.lifecycle.viewModelScope
 import com.opennovel.reader.NovelReaderApp
 import com.opennovel.reader.extension.Ecosystem
 import com.opennovel.reader.extension.ExtensionInfo
+import com.opennovel.reader.extension.SourcePreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -32,6 +33,8 @@ data class ExtensionSourceInfo(
     val name: String,
     val lang: String,
     val baseUrl: String,
+    /** Whether the extension declares a settings screen for this source. */
+    val hasPreferences: Boolean = false,
 )
 
 data class ExtensionInfoUiState(
@@ -77,7 +80,15 @@ class ExtensionInfoViewModel(
             } else {
                 sources
                     .filter { it.name.equals(info.name, true) || info.name.contains(it.name, true) }
-                    .map { ExtensionSourceInfo(it.id, it.name, it.lang, it.baseUrl) }
+                    .map {
+                        ExtensionSourceInfo(
+                            id = it.id,
+                            name = it.name,
+                            lang = it.lang,
+                            baseUrl = it.baseUrl,
+                            hasPreferences = SourcePreferences.isConfigurable(it),
+                        )
+                    }
             },
             enabled = packageName !in disabled,
             incognito = packageName in incognito,

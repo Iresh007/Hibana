@@ -52,11 +52,29 @@ class NovelReaderApp : Application() {
                     NotificationManager.IMPORTANCE_LOW,
                 ),
             )
+            // Split from the result channel so a sweep's progress can be silent
+            // while its result still reaches the user.
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    LIBRARY_PROGRESS_CHANNEL_ID,
+                    "Library update progress",
+                    NotificationManager.IMPORTANCE_LOW,
+                ),
+            )
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    LIBRARY_RESULT_CHANNEL_ID,
+                    "New chapters",
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
+            )
         }
     }
 
     companion object {
         const val TTS_CHANNEL_ID = "tts_playback"
         const val DOWNLOAD_CHANNEL_ID = "downloads"
+        const val LIBRARY_PROGRESS_CHANNEL_ID = "library_update_progress"
+        const val LIBRARY_RESULT_CHANNEL_ID = "library_update_result"
     }
 }

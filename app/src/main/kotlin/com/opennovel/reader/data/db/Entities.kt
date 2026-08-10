@@ -98,6 +98,43 @@ data class ChapterEntity(
 )
 
 /**
+ * Per-entry chapter list preferences: the filter set, the ordering, and how a
+ * row is labelled.
+ *
+ * Held in its own table rather than as columns on [NovelEntity] because it is
+ * view state, not library data — a backup or a source migration should carry the
+ * entry and its chapters, and quietly dragging "only show unread, descending"
+ * along with them would be surprising. A missing row means "never customised",
+ * which is why every reader of this table falls back to defaults instead of
+ * requiring one to be created up front.
+ *
+ * [FilterState] values are stored by name, not ordinal, so reordering the enum
+ * cannot silently re-interpret existing rows as a different filter.
+ */
+@Entity(
+    tableName = "chapter_settings",
+    foreignKeys = [
+        ForeignKey(
+            entity = NovelEntity::class,
+            parentColumns = ["id"],
+            childColumns = ["novelId"],
+            onDelete = ForeignKey.CASCADE,
+        ),
+    ],
+)
+data class ChapterSettingsEntity(
+    @PrimaryKey val novelId: Long,
+    val filterDownloaded: String = "IGNORED",
+    val filterUnread: String = "IGNORED",
+    val filterBookmarked: String = "IGNORED",
+    /** Name of a `ChapterSort` constant; unknown values fall back to the default. */
+    val sort: String = "NUMBER",
+    val sortDescending: Boolean = false,
+    /** True shows the source's full chapter title, false shows just its number. */
+    val displayFullTitle: Boolean = true,
+)
+
+/**
  * One row per novel recording the most recently read chapter and when. Powers the
  * History tab (recently read) and "continue reading". Kept to a single row per
  * novel (unique [novelId]) so history shows each novel once at its latest point.
@@ -201,6 +238,11 @@ data class ChapterWithNovel(
     val dateFetch: Long,
     val novelTitle: String,
     val coverUrl: String?,
+    /**
+     * Carried from the parent novel so the feeds can be narrowed to the active
+     * section without a second query per row. See [ContentType].
+     */
+    val contentType: String = ContentType.UNKNOWN.name,
 )
 
 /** One chapter's release time, for estimating an entry's publishing cadence. */
@@ -217,4 +259,6 @@ data class HistoryWithNovel(
     val title: String,
     val coverUrl: String?,
     val chapterName: String,
+    /** Carried from the parent novel so History can be scoped to a section. */
+    val contentType: String = ContentType.UNKNOWN.name,
 )

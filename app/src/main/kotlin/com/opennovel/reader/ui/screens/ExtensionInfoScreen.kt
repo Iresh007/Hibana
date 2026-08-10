@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.OpenInBrowser
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -69,8 +70,16 @@ fun ExtensionInfoScreen(
     val info = state.info
 
     var confirmUntrust by remember { mutableStateOf(false) }
+    // Source preferences are a full screen, but this destination isn't in
+    // RootNav, so it is hosted here and swaps out the content instead.
+    var preferencesSourceId by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(packageName) { infoVm.refresh() }
+
+    preferencesSourceId?.let { id ->
+        SourcePreferencesScreen(sourceId = id, onBack = { preferencesSourceId = null })
+        return
+    }
 
     Scaffold(
         topBar = {
@@ -217,21 +226,39 @@ fun ExtensionInfoScreen(
                 )
             }
             state.sources.forEach { source ->
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .clickableMinTouch { onBrowseSource(source.id) }
-                        .padding(horizontal = 16.dp, vertical = 10.dp),
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(source.name, style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        listOfNotNull(source.lang.takeIf { it.isNotBlank() }, source.baseUrl.takeIf { it.isNotBlank() })
-                            .joinToString(" · "),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .clickableMinTouch { onBrowseSource(source.id) }
+                            .padding(start = 16.dp, top = 10.dp, bottom = 10.dp, end = 8.dp),
+                    ) {
+                        Text(source.name, style = MaterialTheme.typography.bodyLarge)
+                        Text(
+                            listOfNotNull(
+                                source.lang.takeIf { it.isNotBlank() },
+                                source.baseUrl.takeIf { it.isNotBlank() },
+                            ).joinToString(" · "),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    // Only shown where the extension actually declares settings;
+                    // an always-present gear that opens an empty screen is worse
+                    // than none at all.
+                    if (source.hasPreferences) {
+                        IconButton(
+                            onClick = { preferencesSourceId = source.id },
+                            modifier = Modifier.padding(end = 8.dp),
+                        ) {
+                            Icon(Icons.Filled.Settings, contentDescription = "Source settings")
+                        }
+                    }
                 }
             }
 

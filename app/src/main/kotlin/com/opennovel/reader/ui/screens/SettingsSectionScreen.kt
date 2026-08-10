@@ -33,7 +33,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.opennovel.reader.ui.MaintenanceViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -41,6 +48,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opennovel.reader.data.AppSection
 import com.opennovel.reader.data.AutoBackupFrequency
 import com.opennovel.reader.data.LibraryDisplayMode
 import com.opennovel.reader.data.NO_DEFAULT_CATEGORY
@@ -53,6 +61,7 @@ import com.opennovel.reader.data.TranslateLanguage
 import com.opennovel.reader.data.UpdateSchedule
 import com.opennovel.reader.ui.BackupViewModel
 import com.opennovel.reader.ui.LibraryViewModel
+import com.opennovel.reader.ui.SectionPrefsViewModel
 import com.opennovel.reader.ui.SettingsSectionViewModel
 import com.opennovel.reader.ui.SettingsViewModel
 import com.opennovel.reader.ui.UpdatesViewModel
@@ -60,10 +69,15 @@ import com.opennovel.reader.ui.UpdatesViewModel
 /**
  * One settings category, resolved from [sectionId] via [SettingsSection].
  *
- * Preferences that already had wiring (theme, reader, TTS, update schedule) stay
- * on [SettingsViewModel] so side effects like WorkManager rescheduling keep
- * happening; the preferences added for this tree live on
- * [SettingsSectionViewModel].
+ * [sectionId] names a *settings category* ("reader", "library"). It is unrelated
+ * to [AppSection], the Manga/Novel half of the app; a category may edit
+ * preferences for either app section, which is why the two are never held in the
+ * same variable here.
+ *
+ * Globally-shared preferences with side effects (theme, TTS, update schedule)
+ * stay on [SettingsViewModel] so WorkManager rescheduling keeps happening;
+ * plain global preferences live on [SettingsSectionViewModel]; anything that
+ * differs between comics and prose lives on [SectionPrefsViewModel].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -162,8 +176,12 @@ private fun LibrarySection(factory: ViewModelProvider.Factory) {
     val libraryVm: LibraryViewModel = viewModel(factory = factory)
     val extra: SettingsSectionViewModel =
         viewModel(factory = SettingsSectionViewModel.factory(LocalContext.current))
+    val sectionVm: SectionPrefsViewModel =
+        viewModel(factory = SectionPrefsViewModel.factory(LocalContext.current))
     val s by vm.settings.collectAsStateWithLifecycle()
     val categories by libraryVm.categories.collectAsStateWithLifecycle()
+    val edited by sectionVm.editedSection.collectAsStateWithLifecycle()
+    val sectionPrefs by sectionVm.settings.collectAsStateWithLifecycle()
 
     PrefSection("Categories") {
         Hint("Where newly added entries go. \"Always ask\" prompts on each add.")
@@ -184,38 +202,51 @@ private fun LibrarySection(factory: ViewModelProvider.Factory) {
         )
     }
 
+    HorizontalDivider()
+    AppSectionSelector(
+        edited = edited,
+        onSelect = sectionVm::editSection,
+        hint = "Layout and badges are kept per shelf — a grid that suits covers " +
+            "rarely suits book spines. Pick which shelf the next two groups apply to.",
+    )
+
     PrefSection("Display") {
         LibraryDisplayMode.entries.forEach { mode ->
-            RadioRow(mode.label, s.libraryDisplayMode == mode) { libraryVm.setLibraryDisplayMode(mode) }
+            RadioRow(mode.label, sectionPrefs.libraryDisplayMode == mode) {
+                sectionVm.setLibraryDisplayMode(mode)
+            }
         }
     }
 
     PrefSection("Badges") {
         SwitchRow(
             title = "Show badges on covers",
-            subtitle = "Master switch for every cover badge",
-            checked = s.showLibraryBadges,
-            onCheckedChange = libraryVm::setShowLibraryBadges,
+            subtitle = "Master switch for every ${edited.label} cover badge",
+            checked = sectionPrefs.showLibraryBadges,
+            onCheckedChange = sectionVm::setShowLibraryBadges,
         )
+        // Which badges are drawn is a global taste; whether any are drawn is
+        // per shelf, so these follow the section's master switch.
         SwitchRow(
             title = "Unread count",
             checked = s.showUnreadBadge,
-            enabled = s.showLibraryBadges,
+            enabled = sectionPrefs.showLibraryBadges,
             onCheckedChange = extra::setShowUnreadBadge,
         )
         SwitchRow(
             title = "Downloaded count",
             checked = s.showDownloadedBadge,
-            enabled = s.showLibraryBadges,
+            enabled = sectionPrefs.showLibraryBadges,
             onCheckedChange = extra::setShowDownloadedBadge,
         )
         SwitchRow(
             title = "Source language",
             checked = s.showLanguageBadge,
-            enabled = s.showLibraryBadges,
+            enabled = sectionPrefs.showLibraryBadges,
             onCheckedChange = extra::setShowLanguageBadge,
         )
     }
+    HorizontalDivider()
 
     PrefSection("Global update") {
         Hint("How often Hibana checks your library's sources for new chapters.")
@@ -260,70 +291,96 @@ private fun ReaderSection(factory: ViewModelProvider.Factory) {
     val vm: SettingsViewModel = viewModel(factory = factory)
     val extra: SettingsSectionViewModel =
         viewModel(factory = SettingsSectionViewModel.factory(LocalContext.current))
+    val sectionVm: SectionPrefsViewModel =
+        viewModel(factory = SectionPrefsViewModel.factory(LocalContext.current))
     val s by vm.settings.collectAsStateWithLifecycle()
+    val edited by sectionVm.editedSection.collectAsStateWithLifecycle()
+    val sectionPrefs by sectionVm.settings.collectAsStateWithLifecycle()
 
-    // Comics and novels are rendered by two independent readers that share no
-    // settings, so they are grouped rather than interleaved.
-    GroupHeader("Comics")
+    AppSectionSelector(
+        edited = edited,
+        onSelect = sectionVm::editSection,
+        hint = "Comics and prose are rendered by two independent readers. " +
+            "Pick which one these settings apply to.",
+    )
+    HorizontalDivider()
 
-    PrefSection("Reading mode") {
-        Hint("Paged right-to-left matches the Japanese manga convention.")
-        ReadingMode.entries.forEach { mode ->
-            RadioRow(mode.label, s.readingMode == mode) { vm.setReadingMode(mode) }
+    // Only the controls the chosen reader can actually honour are rendered: a
+    // page layout is meaningless for prose, a font size for a scan.
+    when (edited) {
+        AppSection.COMIC -> {
+            PrefSection("Reading mode") {
+                Hint("Paged right-to-left matches the Japanese manga convention.")
+                ReadingMode.entries.forEach { mode ->
+                    RadioRow(mode.label, sectionPrefs.readingMode == mode) {
+                        sectionVm.setReadingMode(mode)
+                    }
+                }
+            }
+
+            PrefSection("Page layout") {
+                val pagedMode = sectionPrefs.readingMode in
+                    setOf(ReadingMode.PAGED_LTR, ReadingMode.PAGED_RTL, ReadingMode.PAGED_VERTICAL)
+                Hint(
+                    if (pagedMode) "Double page is best in landscape."
+                    else "Only applies to paged reading modes.",
+                )
+                PageLayout.entries.forEach { layout ->
+                    RadioRow(layout.label, s.comicPageLayout == layout, enabled = pagedMode) {
+                        extra.setComicPageLayout(layout)
+                    }
+                }
+            }
+
+            PrefSection("Display") {
+                SwitchRow(
+                    title = "Fullscreen",
+                    subtitle = "Hide the status and navigation bars while reading",
+                    checked = s.comicFullscreen,
+                    onCheckedChange = extra::setComicFullscreen,
+                )
+                KeepScreenOnRow(edited, sectionPrefs.keepScreenOn, sectionVm::setKeepScreenOn)
+            }
         }
-    }
 
-    PrefSection("Page layout") {
-        val pagedMode = s.readingMode in
-            setOf(ReadingMode.PAGED_LTR, ReadingMode.PAGED_RTL, ReadingMode.PAGED_VERTICAL)
-        Hint(
-            if (pagedMode) "Double page is best in landscape."
-            else "Only applies to paged reading modes.",
-        )
-        PageLayout.entries.forEach { layout ->
-            RadioRow(layout.label, s.comicPageLayout == layout, enabled = pagedMode) {
-                extra.setComicPageLayout(layout)
+        AppSection.NOVEL -> {
+            PrefSection("Typography") {
+                LabeledSlider("Font size", sectionPrefs.fontScale, 0.8f..1.8f) {
+                    sectionVm.setFontScale(it)
+                }
+                LabeledSlider("Line spacing", sectionPrefs.lineSpacing, 1.0f..2.2f) {
+                    sectionVm.setLineSpacing(it)
+                }
+                ChipRow(
+                    options = listOf("serif", "sans", "monospace"),
+                    selected = sectionPrefs.fontFamily,
+                    label = { it.replaceFirstChar { c -> c.uppercase() } },
+                    onSelect = sectionVm::setFontFamily,
+                )
+            }
+
+            PrefSection("Display") {
+                KeepScreenOnRow(edited, sectionPrefs.keepScreenOn, sectionVm::setKeepScreenOn)
+            }
+
+            PrefSection("Theme") {
+                Hint(
+                    "The novel reader follows the app theme, which is shared with the rest " +
+                        "of Hibana — change it under Appearance.",
+                )
             }
         }
     }
+}
 
-    PrefSection("Display") {
-        SwitchRow(
-            title = "Fullscreen",
-            subtitle = "Hide the status and navigation bars while reading",
-            checked = s.comicFullscreen,
-            onCheckedChange = extra::setComicFullscreen,
-        )
-        SwitchRow(
-            title = "Keep screen on",
-            checked = s.keepScreenOn,
-            onCheckedChange = vm::setKeepScreenOn,
-        )
-    }
-
-    HorizontalDivider()
-    GroupHeader("Novels")
-
-    PrefSection("Typography") {
-        LabeledSlider("Font size", s.fontScale, 0.8f..1.8f) { vm.setFontScale(it) }
-        LabeledSlider("Line spacing", s.lineSpacing, 1.0f..2.2f) { vm.setLineSpacing(it) }
-        ChipRow(
-            options = listOf("serif", "sans", "monospace"),
-            selected = s.fontFamily,
-            label = { it.replaceFirstChar { c -> c.uppercase() } },
-            onSelect = vm::setFontFamily,
-        )
-    }
-
-    PrefSection("Theme") {
-        Hint("The novel reader uses the app theme; sepia and black are tuned for long reads.")
-        ChipRow(
-            options = ThemeMode.entries,
-            selected = s.themeMode,
-            label = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
-            onSelect = vm::setTheme,
-        )
-    }
+@Composable
+private fun KeepScreenOnRow(edited: AppSection, checked: Boolean, onChange: (Boolean) -> Unit) {
+    SwitchRow(
+        title = "Keep screen on",
+        subtitle = "While reading ${edited.label}",
+        checked = checked,
+        onCheckedChange = onChange,
+    )
 }
 
 // --- narration & translation -------------------------------------------
@@ -410,16 +467,9 @@ private fun DownloadsSection(factory: ViewModelProvider.Factory) {
     val context = LocalContext.current
 
     PrefSection("Location") {
-        Text(
-            s.downloadLocation.ifBlank {
-                context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        )
-        // TODO: allow picking a custom root via OpenDocumentTree once the
-        // Downloader (owned elsewhere) can write through a SAF tree URI.
-        Hint("Downloads are stored in app-private storage and removed when Hibana is uninstalled.")
+        // The picker owns its own state and permission handling, so Settings
+        // just hosts it rather than duplicating the SAF plumbing.
+        DownloadLocationCard()
     }
 
     PrefSection("Automatic downloads") {
@@ -547,13 +597,40 @@ private fun DataStorageSection(factory: ViewModelProvider.Factory) {
     }
 
     PrefSection("Storage") {
-        ActionRow(
-            title = "Clear chapter cache",
-            subtitle = "Drop cached chapter text and page images (downloads are kept)",
-            // TODO: needs Downloader/cache APIs that live outside this change set.
-            onClick = {},
-            enabled = false,
+        val maintenance: MaintenanceViewModel = viewModel(
+            factory = remember(context) { MaintenanceViewModel.factory(context) },
         )
+        val downloadedSize by maintenance.downloadedSize.collectAsStateWithLifecycle()
+        val busy by maintenance.busy.collectAsStateWithLifecycle()
+        var confirmClearDownloads by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) { maintenance.refreshCounts() }
+        MaintenanceMessages(maintenance)
+
+        ActionRow(
+            title = "Clear downloaded chapters",
+            subtitle = if (downloadedSize > 0) {
+                "${formatBytes(downloadedSize)} stored offline"
+            } else {
+                "Nothing is downloaded"
+            },
+            enabled = !busy && downloadedSize > 0,
+            onClick = { confirmClearDownloads = true },
+        )
+
+        if (confirmClearDownloads) {
+            // Downloads are the only content the app holds that cannot be
+            // re-fetched offline, so this confirms and states the cost.
+            ConfirmDialog(
+                title = "Clear downloaded chapters?",
+                body = "This deletes every downloaded chapter file, freeing about " +
+                    "${formatBytes(downloadedSize)}. Reading progress and bookmarks are kept, " +
+                    "and chapters can be downloaded again.",
+                confirmLabel = "Clear",
+                onConfirm = { confirmClearDownloads = false; maintenance.clearDownloadCache() },
+                onDismiss = { confirmClearDownloads = false },
+            )
+        }
         ActionRow(
             title = "Clear cookies",
             subtitle = "Sign out of every source and drop Cloudflare clearances",
@@ -630,13 +707,40 @@ private fun AdvancedSection(factory: ViewModelProvider.Factory) {
             subtitle = "Restore every preference to its default",
             onClick = extra::resetSettings,
         )
+        val maintenance: MaintenanceViewModel = viewModel(
+            factory = remember(context) { MaintenanceViewModel.factory(context) },
+        )
+        val cachedEntries by maintenance.cachedEntries.collectAsStateWithLifecycle()
+        val maintenanceBusy by maintenance.busy.collectAsStateWithLifecycle()
+        var confirmClearDatabase by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) { maintenance.refreshCounts() }
+        MaintenanceMessages(maintenance)
+
         ActionRow(
             title = "Clear database",
-            subtitle = "Remove entries that are not in your library",
-            // TODO: needs the Room DAOs, which are owned outside this change set.
-            onClick = {},
-            enabled = false,
+            subtitle = if (cachedEntries > 0) {
+                "$cachedEntries cached entr${if (cachedEntries == 1) "y" else "ies"} " +
+                    "left over from browsing"
+            } else {
+                "Nothing cached outside your library"
+            },
+            enabled = !maintenanceBusy && cachedEntries > 0,
+            onClick = { confirmClearDatabase = true },
         )
+
+        if (confirmClearDatabase) {
+            ConfirmDialog(
+                title = "Clear database?",
+                body = "This removes $cachedEntries entr" +
+                    "${if (cachedEntries == 1) "y" else "ies"} that were cached while browsing " +
+                    "but never added to your library. Library entries, their chapters, reading " +
+                    "progress and history are all kept.",
+                confirmLabel = "Clear",
+                onConfirm = { confirmClearDatabase = false; maintenance.clearCachedEntries() },
+                onDismiss = { confirmClearDatabase = false },
+            )
+        }
         message?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
         }
@@ -685,13 +789,27 @@ private const val MAX_SHARED_LOG_CHARS = 200_000
 
 // --- shared building blocks --------------------------------------------
 
+/**
+ * Picks which [AppSection]'s preferences the surrounding groups edit.
+ *
+ * Deliberately not tied to the section the user is browsing: settings is where
+ * you go to fix the *other* half of the app.
+ */
 @Composable
-private fun GroupHeader(title: String) {
-    Text(
-        title,
-        style = MaterialTheme.typography.titleLarge,
-        color = MaterialTheme.colorScheme.primary,
-    )
+private fun AppSectionSelector(
+    edited: AppSection,
+    onSelect: (AppSection) -> Unit,
+    hint: String,
+) {
+    PrefSection("Applies to") {
+        ChipRow(
+            options = AppSection.entries,
+            selected = edited,
+            label = { it.label },
+            onSelect = onSelect,
+        )
+        Hint(hint)
+    }
 }
 
 @Composable
@@ -764,6 +882,49 @@ private fun RadioRow(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f),
         )
     }
+}
+
+/** Surfaces a maintenance action's result once, then clears it. */
+@Composable
+private fun MaintenanceMessages(vm: MaintenanceViewModel) {
+    val message by vm.message.collectAsStateWithLifecycle()
+    message?.let {
+        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        LaunchedEffect(it) {
+            kotlinx.coroutines.delay(6000)
+            vm.consumeMessage()
+        }
+    }
+}
+
+/**
+ * Confirmation for an irreversible action, stating exactly what goes.
+ *
+ * A destructive row that fires on a single tap gives no chance to notice a
+ * mis-tap, and these cannot be undone.
+ */
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824 -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1024 -> "%.0f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }
 
 @Composable
