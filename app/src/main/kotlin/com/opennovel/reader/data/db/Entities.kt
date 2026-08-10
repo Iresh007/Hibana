@@ -203,6 +203,12 @@ data class ChapterWithNovel(
     val coverUrl: String?,
 )
 
+/** One chapter's release time, for estimating an entry's publishing cadence. */
+data class ChapterRelease(
+    val novelId: Long,
+    val releasedAt: Long,
+)
+
 /** Denormalized history row joined with its novel + chapter, for display. */
 data class HistoryWithNovel(
     val novelId: Long,

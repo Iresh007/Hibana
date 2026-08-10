@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Refresh
@@ -60,6 +61,7 @@ import java.util.concurrent.TimeUnit
 fun UpdatesScreen(
     factory: ViewModelProvider.Factory,
     onOpenChapter: (Long) -> Unit,
+    onOpenUpcoming: () -> Unit = {},
 ) {
     val vm: UpdatesViewModel = viewModel(factory = factory)
     val updates by vm.updates.collectAsStateWithLifecycle()
@@ -94,6 +96,9 @@ fun UpdatesScreen(
                     }
                 },
                 actions = {
+                    IconButton(onClick = onOpenUpcoming) {
+                        Icon(Icons.Filled.CalendarMonth, contentDescription = "Expected releases")
+                    }
                     if (refreshing) {
                         CircularProgressIndicator(Modifier.padding(end = 16.dp).width(24.dp))
                     } else {

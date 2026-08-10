@@ -149,6 +149,28 @@ interface ChapterDao {
     )
     fun observeDownloadedCount(): Flow<Int>
 
+    /**
+     * Release timestamps for library entries, newest first, used to estimate
+     * each entry's publishing cadence.
+     *
+     * Falls back to dateFetch when the source publishes no upload date, since
+     * for a regularly-checked library the two track each other closely enough to
+     * estimate an interval — and a source with no dates at all would otherwise
+     * be excluded from the schedule entirely.
+     */
+    @Query(
+        """
+        SELECT c.novelId AS novelId,
+               (CASE WHEN c.dateUpload > 0 THEN c.dateUpload ELSE c.dateFetch END) AS releasedAt
+        FROM chapters c
+        JOIN novels n ON n.id = c.novelId
+        WHERE n.inLibrary = 1
+          AND (c.dateUpload > 0 OR c.dateFetch > 0)
+        ORDER BY c.novelId ASC, releasedAt DESC
+        """,
+    )
+    fun observeReleaseTimes(): Flow<List<ChapterRelease>>
+
     /** Chapters already downloaded, for the download manager. */
     @Query(
         """

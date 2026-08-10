@@ -42,6 +42,7 @@ import com.opennovel.reader.ui.screens.ReaderScreen
 import com.opennovel.reader.ui.screens.SettingsScreen
 import com.opennovel.reader.ui.screens.SettingsSectionScreen
 import com.opennovel.reader.ui.screens.StatsScreen
+import com.opennovel.reader.ui.screens.UpcomingScreen
 import com.opennovel.reader.ui.screens.UpdatesScreen
 
 /**
@@ -133,6 +134,7 @@ private fun HomeTabs(factory: ViewModelProvider.Factory, nav: NavHostController)
                 Dest.Updates -> UpdatesScreen(
                     factory = factory,
                     onOpenChapter = { chapterId -> nav.navigate("reader/$chapterId") },
+                    onOpenUpcoming = { nav.navigate("upcoming") },
                 )
 
                 Dest.History -> HistoryScreen(
@@ -230,6 +232,13 @@ private fun NavGraphBuilder.detailRoutes(
     }
     composable("stats") {
         StatsScreen(factory = factory, onBack = { nav.popBackStack() })
+    }
+    composable("upcoming") {
+        UpcomingScreen(
+            factory = factory,
+            onBack = { nav.popBackStack() },
+            onOpenNovel = { novelId -> nav.navigate("novel/$novelId") },
+        )
     }
     composable("settings") {
         SettingsScreen(

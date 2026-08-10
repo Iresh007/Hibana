@@ -86,6 +86,10 @@ class LibraryRepository(
     fun observeDownloaded(): Flow<List<com.opennovel.reader.data.db.ChapterWithNovel>> =
         chapterDao.observeDownloaded()
 
+    /** Release timestamps per library entry, for the upcoming-releases estimate. */
+    fun observeReleaseTimes(): Flow<List<com.opennovel.reader.data.db.ChapterRelease>> =
+        chapterDao.observeReleaseTimes()
+
     /** Exact library-wide chapter tallies, for Statistics. */
     fun observeBookmarkedCount(): Flow<Int> = chapterDao.observeBookmarkedCount()
 

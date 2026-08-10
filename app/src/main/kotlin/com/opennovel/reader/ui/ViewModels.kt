@@ -57,6 +57,8 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
             BackupViewModel(c.backupManager)
         modelClass.isAssignableFrom(StatsViewModel::class.java) ->
             StatsViewModel(c.libraryRepository, c.sourceManager)
+        modelClass.isAssignableFrom(UpcomingViewModel::class.java) ->
+            UpcomingViewModel(c.libraryRepository)
         modelClass.isAssignableFrom(SourceBrowseViewModel::class.java) ->
             SourceBrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
