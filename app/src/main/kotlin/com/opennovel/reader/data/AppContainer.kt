@@ -40,9 +40,13 @@ class AppContainer(context: Context) {
 
     /** Destructive housekeeping actions exposed in Settings. */
     val maintenanceRepository = MaintenanceRepository(
+        context = context.applicationContext,
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
     )
+
+    /** Per-entry chapter list preferences (filter, sort, display). */
+    val chapterSettingsDao = database.chapterSettingsDao()
 
     val libraryRepository = LibraryRepository(
         novelDao = database.novelDao(),

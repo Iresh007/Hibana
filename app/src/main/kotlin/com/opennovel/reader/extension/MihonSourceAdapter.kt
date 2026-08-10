@@ -7,6 +7,7 @@ import com.opennovel.reader.source.model.NovelsPage
 import com.opennovel.reader.source.model.SChapter
 import com.opennovel.reader.source.model.SNovel
 import eu.kanade.tachiyomi.source.CatalogueSource
+import eu.kanade.tachiyomi.source.ConfigurableSource
 import eu.kanade.tachiyomi.source.model.FilterList
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.SManga
@@ -25,6 +26,13 @@ class MihonSourceAdapter(
 ) : Source, com.opennovel.reader.source.ImageChapterSource {
 
     private val catalogue: CatalogueSource? = native as? CatalogueSource
+
+    /**
+     * Non-null when the extension declares its own settings screen. The adapter
+     * is the only object that still holds the extension instance once loading is
+     * done, so the preferences UI has to reach it through here.
+     */
+    val configurable: ConfigurableSource? = native as? ConfigurableSource
 
     override val id: Long = native.id
     override val name: String = native.name

@@ -50,6 +50,7 @@ import com.opennovel.reader.ui.screens.MoreScreen
 import com.opennovel.reader.ui.screens.NovelDetailScreen
 import com.opennovel.reader.ui.screens.ReaderScreen
 import com.opennovel.reader.ui.screens.SettingsScreen
+import com.opennovel.reader.ui.screens.SourcePreferencesScreen
 import com.opennovel.reader.ui.screens.SettingsSectionScreen
 import com.opennovel.reader.ui.screens.StatsScreen
 import com.opennovel.reader.ui.screens.UpcomingScreen
@@ -252,6 +253,13 @@ private fun NavGraphBuilder.detailRoutes(
     }
     composable("extension_repos") {
         ExtensionReposScreen(factory = factory, onBack = { nav.popBackStack() })
+    }
+    // A real destination rather than content swapped inside Browse, so a source's
+    // settings get their own back-stack entry and the system back gesture
+    // returns to the list instead of leaving the tab.
+    composable("source_preferences/{sourceId}") { entry ->
+        val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable
+        SourcePreferencesScreen(sourceId = id, onBack = { nav.popBackStack() })
     }
     composable("source/{sourceId}") { entry ->
         val id = entry.arguments?.getString("sourceId")?.toLongOrNull() ?: return@composable

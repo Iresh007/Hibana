@@ -86,6 +86,10 @@ fun DownloadsScreen(
             )
         }
 
+        if (!inSelectionMode) {
+            DownloadLocationCard()
+        }
+
         if (downloaded.isEmpty() && queue.isEmpty()) {
             Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text(

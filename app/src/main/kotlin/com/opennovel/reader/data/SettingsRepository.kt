@@ -73,6 +73,13 @@ data class ReaderSettings(
     // --- comic reader ---
     val comicPageLayout: PageLayout = PageLayout.SINGLE,
     val comicFullscreen: Boolean = true,
+    /** Where a tap turns the page. Reader-wide: it is muscle memory, not per-title. */
+    val tapZoneLayout: TapZoneLayout = TapZoneLayout.L_SHAPED,
+    /**
+     * Page with the volume rocker. Off by default because swallowing the keys
+     * takes volume control away from whatever else is playing.
+     */
+    val volumeKeyPaging: Boolean = false,
 
     // --- downloads ---
     /** Display-only path of the download root; empty means app-private storage. */
@@ -153,6 +160,20 @@ enum class ReadingMode(val label: String) {
     PAGED_VERTICAL("Paged — vertical (e-reader)"),
 }
 
+/**
+ * Which part of the screen turns the page when tapped.
+ *
+ * The shapes are the ones readers already know from Mihon/Tachiyomi; the centre
+ * of every layout opens the reader menu, and [DISABLED] makes the whole screen
+ * do that so a tap can never lose someone's place.
+ */
+enum class TapZoneLayout(val label: String) {
+    L_SHAPED("L-shaped"),
+    KINDLE("Kindle-style"),
+    EDGE("Edge"),
+    DISABLED("Disabled"),
+}
+
 /** OCR model to use; manga lettering differs enough per script to matter. */
 enum class OcrScriptSetting(val label: String) {
     LATIN("Latin / English"),
@@ -204,6 +225,8 @@ class SettingsRepository(private val context: Context) {
             showLanguageBadge = p[BADGE_LANGUAGE] ?: false,
             comicPageLayout = enumOr(p[COMIC_PAGE_LAYOUT], PageLayout.SINGLE),
             comicFullscreen = p[COMIC_FULLSCREEN] ?: true,
+            tapZoneLayout = enumOr(p[TAP_ZONE_LAYOUT], TapZoneLayout.L_SHAPED),
+            volumeKeyPaging = p[VOLUME_KEY_PAGING] ?: false,
             downloadLocation = p[DOWNLOAD_LOCATION] ?: "",
             downloadNewChapters = p[DOWNLOAD_NEW_CHAPTERS] ?: false,
             removeAfterRead = p[REMOVE_AFTER_READ] ?: false,
@@ -262,6 +285,8 @@ class SettingsRepository(private val context: Context) {
     suspend fun setShowLanguageBadge(v: Boolean) = edit { it[BADGE_LANGUAGE] = v }
     suspend fun setComicPageLayout(v: PageLayout) = edit { it[COMIC_PAGE_LAYOUT] = v.name }
     suspend fun setComicFullscreen(v: Boolean) = edit { it[COMIC_FULLSCREEN] = v }
+    suspend fun setTapZoneLayout(v: TapZoneLayout) = edit { it[TAP_ZONE_LAYOUT] = v.name }
+    suspend fun setVolumeKeyPaging(v: Boolean) = edit { it[VOLUME_KEY_PAGING] = v }
     suspend fun setDownloadLocation(v: String) = edit { it[DOWNLOAD_LOCATION] = v }
     suspend fun setDownloadNewChapters(v: Boolean) = edit { it[DOWNLOAD_NEW_CHAPTERS] = v }
     suspend fun setRemoveAfterRead(v: Boolean) = edit { it[REMOVE_AFTER_READ] = v }
@@ -316,6 +341,8 @@ class SettingsRepository(private val context: Context) {
         val BADGE_LANGUAGE = booleanPreferencesKey("badge_language")
         val COMIC_PAGE_LAYOUT = stringPreferencesKey("comic_page_layout")
         val COMIC_FULLSCREEN = booleanPreferencesKey("comic_fullscreen")
+        val TAP_ZONE_LAYOUT = stringPreferencesKey("tap_zone_layout")
+        val VOLUME_KEY_PAGING = booleanPreferencesKey("volume_key_paging")
         val DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
         val DOWNLOAD_NEW_CHAPTERS = booleanPreferencesKey("download_new_chapters")
         val REMOVE_AFTER_READ = booleanPreferencesKey("remove_after_read")

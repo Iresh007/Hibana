@@ -1,5 +1,8 @@
 package com.opennovel.reader.data
 
+import android.content.Context
+import android.net.Uri
+import android.provider.DocumentsContract
 import com.opennovel.reader.data.db.ChapterDao
 import com.opennovel.reader.data.db.NovelDao
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +40,7 @@ data class MaintenanceResult(
  * settings rows can confirm the work instead of appearing to do nothing.
  */
 class MaintenanceRepository(
+    private val context: Context,
     private val novelDao: NovelDao,
     private val chapterDao: ChapterDao,
 ) {
@@ -56,25 +60,50 @@ class MaintenanceRepository(
         MaintenanceResult(itemsRemoved = removed)
     }
 
-    /** Total size currently held by downloaded chapter files. */
+    /**
+     * Total size currently held by downloaded chapter files.
+     *
+     * A download can live either in app-private storage (a filesystem path) or
+     * in a user-chosen folder (a `content://` document URI). Measuring only the
+     * former would silently report 0 B once a custom download folder is in use,
+     * which would then disable the row that clears them.
+     */
     suspend fun downloadedSize(): Long = withContext(Dispatchers.IO) {
-        chapterDao.allDownloadPaths().sumOf { path ->
-            runCatching { File(path).length() }.getOrDefault(0L)
-        }
+        chapterDao.allDownloadPaths().sumOf { location -> sizeOf(location) }
     }
+
+    private fun sizeOf(location: String): Long = runCatching {
+        if (!location.startsWith("content://")) return@runCatching File(location).length()
+        val uri = Uri.parse(location)
+        context.contentResolver.query(
+            uri,
+            arrayOf(DocumentsContract.Document.COLUMN_SIZE),
+            null,
+            null,
+            null,
+        )?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0) else 0L
+        } ?: 0L
+    }.getOrDefault(0L)
 
     /**
      * Deletes downloaded chapter files and clears the flags that pointed at
      * them, so nothing is left claiming to be downloaded when the file is gone.
      */
     suspend fun clearDownloadCache(): MaintenanceResult = withContext(Dispatchers.IO) {
-        val paths = chapterDao.allDownloadPaths()
+        val locations = chapterDao.allDownloadPaths()
         var freed = 0L
         var removed = 0
-        paths.forEach { path ->
-            val file = File(path)
-            val size = runCatching { file.length() }.getOrDefault(0L)
-            if (runCatching { file.delete() }.getOrDefault(false)) {
+        locations.forEach { location ->
+            val size = sizeOf(location)
+            val deleted = runCatching {
+                if (location.startsWith("content://")) {
+                    DocumentsContract.deleteDocument(context.contentResolver, Uri.parse(location))
+                } else {
+                    File(location).delete()
+                }
+            }.getOrDefault(false)
+            if (deleted) {
                 freed += size
                 removed++
             }

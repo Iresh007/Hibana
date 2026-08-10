@@ -13,7 +13,10 @@ import com.opennovel.reader.data.SettingsRepository
 import com.opennovel.reader.data.ThemeMode
 import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.ChapterEntity
+import com.opennovel.reader.data.db.ChapterSettingsDao
+import com.opennovel.reader.data.db.ChapterSettingsEntity
 import com.opennovel.reader.data.db.ContentType
+import com.opennovel.reader.data.db.NovelReaderDatabase
 import com.opennovel.reader.data.db.HistoryWithNovel
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.download.Downloader
@@ -55,7 +58,15 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(BrowseViewModel::class.java) ->
             BrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(NovelDetailViewModel::class.java) ->
-            NovelDetailViewModel(c.libraryRepository, c.downloader)
+            // The DAO is taken straight off the database singleton rather than
+            // through LibraryRepository: chapter view state is screen-local
+            // preference data, and threading it through the repository would put
+            // it in the same layer as the library itself.
+            NovelDetailViewModel(
+                c.libraryRepository,
+                c.downloader,
+                c.chapterSettingsDao,
+            )
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(c.settingsRepository, c.appContext, c.translationManager)
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
@@ -108,6 +119,84 @@ enum class FilterState { IGNORED, INCLUDED, EXCLUDED;
         EXCLUDED -> !has
     }
 }
+
+/** How an entry's chapter list is ordered, mirroring Mihon's chapter sort tab. */
+enum class ChapterSort(val label: String) {
+    NUMBER("By chapter number"),
+    UPLOAD_DATE("By upload date"),
+}
+
+/** Tri-state chapter filters for one entry, mirroring Mihon's filter tab. */
+data class ChapterFilters(
+    val downloaded: FilterState = FilterState.IGNORED,
+    val unread: FilterState = FilterState.IGNORED,
+    val bookmarked: FilterState = FilterState.IGNORED,
+) {
+    val active: Int
+        get() = listOf(downloaded, unread, bookmarked).count { it != FilterState.IGNORED }
+}
+
+/**
+ * One entry's chapter filter, sort and display choice.
+ *
+ * Modelled as a value rather than three flows so the whole thing round-trips to
+ * a single row, and so [applyTo] is the one place that decides what the list
+ * shows — the screen never re-derives it.
+ */
+data class ChapterListSettings(
+    val filters: ChapterFilters = ChapterFilters(),
+    val sort: ChapterSort = ChapterSort.NUMBER,
+    val descending: Boolean = false,
+    val fullTitle: Boolean = true,
+) {
+    fun applyTo(chapters: List<ChapterEntity>): List<ChapterEntity> {
+        val filtered = chapters.filter {
+            filters.downloaded.matches(it.downloaded) &&
+                filters.unread.matches(!it.read) &&
+                filters.bookmarked.matches(it.bookmark)
+        }
+        // sourceOrder breaks every tie: sources routinely report the same number
+        // or no date at all, and an unstable order would reshuffle the list on
+        // each emission of the chapter flow.
+        val ordered = when (sort) {
+            ChapterSort.NUMBER -> filtered.sortedWith(compareBy({ it.number }, { it.sourceOrder }))
+            ChapterSort.UPLOAD_DATE -> filtered.sortedWith(compareBy({ it.dateUpload }, { it.sourceOrder }))
+        }
+        // Reversing the result flips whichever sort is active, so one direction
+        // toggle covers both instead of doubling the option list.
+        return if (descending) ordered.asReversed() else ordered
+    }
+
+    fun toEntity(novelId: Long): ChapterSettingsEntity = ChapterSettingsEntity(
+        novelId = novelId,
+        filterDownloaded = filters.downloaded.name,
+        filterUnread = filters.unread.name,
+        filterBookmarked = filters.bookmarked.name,
+        sort = sort.name,
+        sortDescending = descending,
+        displayFullTitle = fullTitle,
+    )
+}
+
+private fun filterStateOf(name: String): FilterState =
+    FilterState.entries.firstOrNull { it.name == name } ?: FilterState.IGNORED
+
+/** A missing row means "never customised", so it reads back as the defaults. */
+private fun ChapterSettingsEntity?.toSettings(): ChapterListSettings =
+    if (this == null) {
+        ChapterListSettings()
+    } else {
+        ChapterListSettings(
+            filters = ChapterFilters(
+                downloaded = filterStateOf(filterDownloaded),
+                unread = filterStateOf(filterUnread),
+                bookmarked = filterStateOf(filterBookmarked),
+            ),
+            sort = ChapterSort.entries.firstOrNull { it.name == sort } ?: ChapterSort.NUMBER,
+            descending = sortDescending,
+            fullTitle = displayFullTitle,
+        )
+    }
 
 /** How many library entries come from a given source. */
 data class LibrarySourceUsage(
@@ -652,6 +741,7 @@ class HistoryViewModel(
 class NovelDetailViewModel(
     private val repo: LibraryRepository,
     private val downloader: Downloader,
+    private val chapterSettingsDao: ChapterSettingsDao,
 ) : ViewModel() {
 
     private val novelId = MutableStateFlow<Long?>(null)
@@ -660,9 +750,55 @@ class NovelDetailViewModel(
         novelId.flatMapLatest { id -> if (id == null) flowOf(null) else repo.observeNovel(id) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), null)
 
-    val chapters: StateFlow<List<ChapterEntity>> =
+    /**
+     * Every chapter the source lists, in source order and unfiltered.
+     *
+     * Kept alongside the filtered list because gap detection has to run over the
+     * complete numbering: computing it after a filter would report every hidden
+     * chapter as missing.
+     */
+    val allChapters: StateFlow<List<ChapterEntity>> =
         novelId.flatMapLatest { id -> if (id == null) flowOf(emptyList()) else repo.observeChapters(id) }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val chapterSettings: StateFlow<ChapterListSettings> =
+        novelId.flatMapLatest { id ->
+            if (id == null) flowOf(null) else chapterSettingsDao.observe(id)
+        }
+            .map { it.toSettings() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ChapterListSettings())
+
+    /** What the list actually shows: filtered and ordered per the entry's choice. */
+    val chapters: StateFlow<List<ChapterEntity>> =
+        combine(allChapters, chapterSettings) { list, settings -> settings.applyTo(list) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    private fun updateChapterSettings(transform: (ChapterListSettings) -> ChapterListSettings) {
+        val id = novelId.value ?: return
+        val next = transform(chapterSettings.value)
+        viewModelScope.launch { chapterSettingsDao.upsert(next.toEntity(id)) }
+    }
+
+    fun cycleDownloadedFilter() = updateChapterSettings {
+        it.copy(filters = it.filters.copy(downloaded = it.filters.downloaded.next()))
+    }
+
+    fun cycleUnreadFilter() = updateChapterSettings {
+        it.copy(filters = it.filters.copy(unread = it.filters.unread.next()))
+    }
+
+    fun cycleBookmarkedFilter() = updateChapterSettings {
+        it.copy(filters = it.filters.copy(bookmarked = it.filters.bookmarked.next()))
+    }
+
+    fun clearChapterFilters() = updateChapterSettings { it.copy(filters = ChapterFilters()) }
+
+    /** Picking the already-active sort flips its direction, as Mihon's sheet does. */
+    fun selectChapterSort(sort: ChapterSort) = updateChapterSettings {
+        if (it.sort == sort) it.copy(descending = !it.descending) else it.copy(sort = sort)
+    }
+
+    fun setChapterFullTitle(fullTitle: Boolean) = updateChapterSettings { it.copy(fullTitle = fullTitle) }
 
     private val _refreshing = MutableStateFlow(false)
     val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()

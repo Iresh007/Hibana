@@ -1,6 +1,7 @@
 package com.opennovel.reader.update
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
@@ -76,9 +77,12 @@ class LibraryUpdateNotifier(private val context: Context) {
 
     fun clearProgress() = manager.cancel(PROGRESS_ID)
 
+    // Every caller gates on [allowed], but lint cannot follow the check across a
+    // property, and the runCatching is the real guarantee: the grant can be
+    // revoked between the check and the post, and losing a notification must
+    // never take down the sweep that was running.
+    @SuppressLint("MissingPermission")
     private fun post(id: Int, notification: android.app.Notification) {
-        // A SecurityException is still possible if the grant is revoked between
-        // the check and the post; losing a notification must not fail the sweep.
         runCatching { manager.notify(id, notification) }
     }
 

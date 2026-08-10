@@ -3,6 +3,7 @@ package com.opennovel.reader.ui.screens
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,9 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.FlipToBack
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.RemoveDone
@@ -48,12 +52,18 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TriStateCheckbox
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -66,6 +76,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
@@ -78,6 +89,9 @@ import com.opennovel.reader.data.findChapterGaps
 import com.opennovel.reader.data.db.ChapterEntity
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.download.QueueState
+import com.opennovel.reader.ui.ChapterListSettings
+import com.opennovel.reader.ui.ChapterSort
+import com.opennovel.reader.ui.FilterState
 import com.opennovel.reader.ui.NovelDetailViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -94,6 +108,8 @@ fun NovelDetailScreen(
 
     val novel by vm.novel.collectAsStateWithLifecycle()
     val chapters by vm.chapters.collectAsStateWithLifecycle()
+    val allChapters by vm.allChapters.collectAsStateWithLifecycle()
+    val chapterSettings by vm.chapterSettings.collectAsStateWithLifecycle()
     val refreshing by vm.refreshing.collectAsStateWithLifecycle()
     val selection by vm.selection.collectAsStateWithLifecycle()
     val queue by vm.queue.collectAsStateWithLifecycle()
@@ -101,8 +117,11 @@ fun NovelDetailScreen(
     val inSelectionMode = selection.isNotEmpty()
     BackHandler(enabled = inSelectionMode) { vm.clearSelection() }
 
-    // Recomputed only when the chapter list changes, not on every recomposition.
-    val gaps = remember(chapters) { findChapterGaps(chapters) }
+    var settingsSheet by remember { mutableStateOf(false) }
+
+    // Derived from the unfiltered list so hidden chapters are never reported as
+    // missing; recomputed only when that list changes.
+    val gaps = remember(allChapters) { findChapterGaps(allChapters) }
     val queueByChapter = remember(queue) { queue.associateBy { it.chapterId } }
 
     Column(Modifier.fillMaxSize()) {
@@ -137,6 +156,19 @@ fun NovelDetailScreen(
                         IconButton(onClick = { onMigrate(novelId) }) {
                             Icon(Icons.Filled.SwapHoriz, contentDescription = "Migrate to another source")
                         }
+                    }
+                    IconButton(onClick = { settingsSheet = true }) {
+                        Icon(
+                            Icons.Filled.FilterList,
+                            contentDescription = "Filter, sort and display",
+                            // Tinted while anything is hidden, so a short list is
+                            // never mistaken for missing chapters.
+                            tint = if (chapterSettings.filters.active > 0) {
+                                MaterialTheme.colorScheme.primary
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                        )
                     }
                     IconButton(onClick = vm::refresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh chapters")
@@ -181,7 +213,13 @@ fun NovelDetailScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        "Chapters (${chapters.size})",
+                        // Says "of N" whenever a filter is hiding rows, so the
+                        // tally explains itself without opening the sheet.
+                        if (chapters.size != allChapters.size) {
+                            "Chapters (${chapters.size} of ${allChapters.size})"
+                        } else {
+                            "Chapters (${chapters.size})"
+                        },
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -199,11 +237,29 @@ fun NovelDetailScreen(
                     }
                 }
             }
+            // An entry with chapters that shows none of them is otherwise
+            // indistinguishable from one the source failed to load.
+            if (chapters.isEmpty() && allChapters.isNotEmpty()) {
+                item {
+                    Column(
+                        Modifier.fillMaxWidth().padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                    ) {
+                        Text(
+                            "No chapters match the current filter",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
+                        )
+                        TextButton(onClick = vm::clearChapterFilters) { Text("Clear filters") }
+                    }
+                }
+            }
             items(chapters, key = { it.id }) { chapter ->
                 // Warn before the chapter that follows a numbering gap.
                 gaps[chapter.id]?.let { gap -> MissingChaptersDivider(gap) }
                 ChapterRow(
                     chapter = chapter,
+                    fullTitle = chapterSettings.fullTitle,
                     selected = chapter.id in selection,
                     selectionMode = inSelectionMode,
                     queueState = queueByChapter[chapter.id]?.state,
@@ -253,6 +309,130 @@ fun NovelDetailScreen(
                 }
             }
         }
+
+        if (settingsSheet) {
+            ChapterSettingsSheet(
+                settings = chapterSettings,
+                onDismiss = { settingsSheet = false },
+                onToggleDownloaded = vm::cycleDownloadedFilter,
+                onToggleUnread = vm::cycleUnreadFilter,
+                onToggleBookmarked = vm::cycleBookmarkedFilter,
+                onSelectSort = vm::selectChapterSort,
+                onSetFullTitle = vm::setChapterFullTitle,
+            )
+        }
+    }
+}
+
+/** Mihon's chapter settings sheet: filter, sort and display, per entry. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChapterSettingsSheet(
+    settings: ChapterListSettings,
+    onDismiss: () -> Unit,
+    onToggleDownloaded: () -> Unit,
+    onToggleUnread: () -> Unit,
+    onToggleBookmarked: () -> Unit,
+    onSelectSort: (ChapterSort) -> Unit,
+    onSetFullTitle: (Boolean) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState()
+    var tab by remember { mutableStateOf(0) }
+
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        TabRow(selectedTabIndex = tab) {
+            listOf("Filter", "Sort", "Display").forEachIndexed { index, label ->
+                Tab(selected = tab == index, onClick = { tab = index }, text = { Text(label) })
+            }
+        }
+        Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            when (tab) {
+                0 -> {
+                    FilterRow("Downloaded", settings.filters.downloaded, onToggleDownloaded)
+                    FilterRow("Unread", settings.filters.unread, onToggleUnread)
+                    FilterRow("Bookmarked", settings.filters.bookmarked, onToggleBookmarked)
+                }
+                1 -> ChapterSort.entries.forEach { sort ->
+                    SortRow(
+                        label = sort.label,
+                        active = settings.sort == sort,
+                        descending = settings.descending,
+                        onClick = { onSelectSort(sort) },
+                    )
+                }
+                else -> {
+                    DisplayRow("Chapter number", !settings.fullTitle) { onSetFullTitle(false) }
+                    DisplayRow("Source title", settings.fullTitle) { onSetFullTitle(true) }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * One tri-state filter.
+ *
+ * The exclude state is spelled out in words next to the box: a checkbox's
+ * indeterminate dash conventionally means "some of", not "hide these", and a
+ * user who mis-reads it would silently lose chapters from the list.
+ */
+@Composable
+private fun FilterRow(label: String, state: FilterState, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        TriStateCheckbox(
+            state = when (state) {
+                FilterState.IGNORED -> ToggleableState.Off
+                FilterState.INCLUDED -> ToggleableState.On
+                FilterState.EXCLUDED -> ToggleableState.Indeterminate
+            },
+            onClick = onClick,
+        )
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        if (state == FilterState.EXCLUDED) {
+            Text(
+                "Excluded",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.padding(end = 16.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun SortRow(label: String, active: Boolean, descending: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(24.dp), Alignment.Center) {
+            if (active) {
+                Icon(
+                    if (descending) Icons.Filled.ArrowDownward else Icons.Filled.ArrowUpward,
+                    contentDescription = if (descending) "Descending" else "Ascending",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.bodyLarge,
+            modifier = Modifier.weight(1f).padding(start = 16.dp),
+        )
+    }
+}
+
+@Composable
+private fun DisplayRow(label: String, selected: Boolean, onClick: () -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        RadioButton(selected = selected, onClick = onClick)
+        Text(label, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
     }
 }
 
@@ -354,6 +534,7 @@ private fun MissingChaptersDivider(gap: ChapterGap) {
 @Composable
 private fun ChapterRow(
     chapter: ChapterEntity,
+    fullTitle: Boolean,
     selected: Boolean,
     selectionMode: Boolean,
     queueState: QueueState?,
@@ -438,7 +619,7 @@ private fun ChapterRow(
             }
             Column(Modifier.weight(1f).padding(start = if (chapter.bookmark) 6.dp else 0.dp)) {
                 Text(
-                    chapter.name,
+                    chapterLabel(chapter, fullTitle),
                     style = MaterialTheme.typography.bodyLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -546,6 +727,23 @@ private fun ChapterDownloadButton(
             },
         )
     }
+}
+
+/**
+ * The row's headline in the chosen display mode.
+ *
+ * Number mode falls back to the source title when the source gave no number:
+ * showing "Chapter -1.0" for an unnumbered extra would be worse than the title
+ * the user was trying to shorten.
+ */
+private fun chapterLabel(chapter: ChapterEntity, fullTitle: Boolean): String {
+    if (fullTitle || chapter.number < 0f) return chapter.name
+    val number = if (chapter.number % 1f == 0f) {
+        chapter.number.toInt().toString()
+    } else {
+        chapter.number.toString()
+    }
+    return "Chapter $number"
 }
 
 /** Recent uploads read better as "2 days ago"; older ones as a date. */

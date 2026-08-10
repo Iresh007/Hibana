@@ -57,10 +57,16 @@ class Downloader(
     private val workerLock = Mutex()
     private var worker: Job? = null
 
-    private val root: File by lazy { File(context.filesDir, "downloads").apply { mkdirs() } }
+    /**
+     * User-chosen download folder, if any. Public so the Downloads screen can
+     * offer the folder picker without a second source of truth.
+     */
+    val storage = DownloadStorage(context)
 
-    /** Downloads one chapter immediately, bypassing the queue. */
-    suspend fun download(chapterId: Long): Result<File> = fetch(chapterId)
+    private val root: File by lazy { storage.defaultRoot().apply { mkdirs() } }
+
+    /** Downloads one chapter immediately, bypassing the queue. Yields its location. */
+    suspend fun download(chapterId: Long): Result<String> = fetch(chapterId)
 
     /** Adds chapters to the queue (skipping duplicates) and starts the drain. */
     suspend fun enqueue(chapterIds: List<Long>) {
@@ -135,7 +141,7 @@ class Downloader(
         _queue.value = _queue.value.map { if (it.chapterId == chapterId) transform(it) else it }
     }
 
-    private suspend fun fetch(chapterId: Long): Result<File> = withContext(Dispatchers.IO) {
+    private suspend fun fetch(chapterId: Long): Result<String> = withContext(Dispatchers.IO) {
         val chapter = chapterDao.getById(chapterId) ?: return@withContext Result.failure(
             IllegalStateException("Chapter $chapterId not found"),
         )
@@ -148,20 +154,26 @@ class Downloader(
         setState(chapterId, DownloadState.RUNNING)
         runCatching {
             val text = source.getChapterText(chapter.url)
-            val dir = File(root, novel.id.toString()).apply { mkdirs() }
-            val file = File(dir, "$chapterId.txt")
-            file.writeText(text.plain, Charsets.UTF_8)
-            chapterDao.setDownloadState(chapterId, downloaded = true, path = file.absolutePath)
+            // A configured folder wins; without one this stays exactly where
+            // downloads have always gone, so nothing already stored is orphaned.
+            val location = storage.writeChapter(novel.id, chapterId, text.plain)
+                ?: File(root, novel.id.toString())
+                    .apply { mkdirs() }
+                    .let { dir -> File(dir, "$chapterId.txt") }
+                    .also { it.writeText(text.plain, Charsets.UTF_8) }
+                    .absolutePath
+            chapterDao.setDownloadState(chapterId, downloaded = true, path = location)
             setState(chapterId, DownloadState.DONE)
-            file
+            location
         }.onFailure { setState(chapterId, DownloadState.FAILED) }
     }
 
-    fun readLocal(path: String): String? = runCatching { File(path).readText(Charsets.UTF_8) }.getOrNull()
+    /** Reads a stored chapter back, whichever storage model wrote it. */
+    fun readLocal(path: String): String? = storage.read(path)
 
     suspend fun delete(chapterId: Long) = withContext(Dispatchers.IO) {
         val chapter = chapterDao.getById(chapterId) ?: return@withContext
-        chapter.downloadPath?.let { File(it).delete() }
+        chapter.downloadPath?.let { storage.delete(it) }
         chapterDao.setDownloadState(chapterId, downloaded = false, path = null)
         setState(chapterId, DownloadState.NONE)
     }

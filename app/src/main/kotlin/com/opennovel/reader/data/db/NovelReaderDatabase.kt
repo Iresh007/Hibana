@@ -1,11 +1,31 @@
 package com.opennovel.reader.data.db
 
 import android.content.Context
+import androidx.room.Dao
 import androidx.room.Database
+import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.Upsert
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import kotlinx.coroutines.flow.Flow
+
+/**
+ * Reads and writes one entry's chapter filter/sort/display choice.
+ *
+ * Declared here rather than in Daos.kt only to keep this feature's storage in
+ * one place alongside the migration that creates its table.
+ */
+@Dao
+interface ChapterSettingsDao {
+
+    @Query("SELECT * FROM chapter_settings WHERE novelId = :novelId")
+    fun observe(novelId: Long): Flow<ChapterSettingsEntity?>
+
+    @Upsert
+    suspend fun upsert(settings: ChapterSettingsEntity)
+}
 
 @Database(
     entities = [
@@ -14,8 +34,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         HistoryEntity::class,
         CategoryEntity::class,
         NovelCategoryCrossRef::class,
+        ChapterSettingsEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class NovelReaderDatabase : RoomDatabase() {
@@ -23,6 +44,7 @@ abstract class NovelReaderDatabase : RoomDatabase() {
     abstract fun chapterDao(): ChapterDao
     abstract fun historyDao(): HistoryDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun chapterSettingsDao(): ChapterSettingsDao
 
     companion object {
         @Volatile
@@ -50,6 +72,33 @@ abstract class NovelReaderDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * v4 → v5 adds the per-entry chapter filter/sort/display table.
+         *
+         * Purely additive — no existing table is touched — so nothing can be lost
+         * here. Rows are created lazily on the first change, so an upgraded
+         * library simply keeps the default view until the user picks otherwise.
+         */
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS chapter_settings (
+                        novelId INTEGER NOT NULL,
+                        filterDownloaded TEXT NOT NULL DEFAULT 'IGNORED',
+                        filterUnread TEXT NOT NULL DEFAULT 'IGNORED',
+                        filterBookmarked TEXT NOT NULL DEFAULT 'IGNORED',
+                        sort TEXT NOT NULL DEFAULT 'NUMBER',
+                        sortDescending INTEGER NOT NULL DEFAULT 0,
+                        displayFullTitle INTEGER NOT NULL DEFAULT 1,
+                        PRIMARY KEY(novelId),
+                        FOREIGN KEY(novelId) REFERENCES novels(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent(),
+                )
+            }
+        }
+
         fun get(context: Context): NovelReaderDatabase =
             instance ?: synchronized(this) {
                 instance ?: Room.databaseBuilder(
@@ -57,7 +106,7 @@ abstract class NovelReaderDatabase : RoomDatabase() {
                     NovelReaderDatabase::class.java,
                     "novelreader.db",
                 )
-                    .addMigrations(MIGRATION_3_4)
+                    .addMigrations(MIGRATION_3_4, MIGRATION_4_5)
                     .build()
                     .also { instance = it }
             }

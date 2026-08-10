@@ -60,6 +60,14 @@ fun BrowseScreen(
 
     var openSource by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
     var webViewSource by remember { mutableStateOf<BrowseSource?>(null) }
+    // Hosted here for the same reason as the browse/WebView screens: RootNav has
+    // no destination for it, and this screen is what knows the source id.
+    var preferencesSourceId by remember { mutableStateOf<Long?>(null) }
+
+    preferencesSourceId?.let { id ->
+        SourcePreferencesScreen(sourceId = id, onBack = { preferencesSourceId = null })
+        return
+    }
 
     webViewSource?.let { source ->
         SourceWebViewScreen(
@@ -115,6 +123,7 @@ fun BrowseScreen(
                     onOpenInBrowser = { vm.openInBrowser(source.baseUrl) },
                     onShare = { vm.share(source.baseUrl, source.name) },
                     onClearCookies = { vm.clearCookies(source.baseUrl) },
+                    onSettings = { preferencesSourceId = source.id },
                 )
             }
         }
@@ -131,6 +140,7 @@ fun BrowseScreen(
                     onOpenInBrowser = { vm.openInBrowser(source.baseUrl) },
                     onShare = { vm.share(source.baseUrl, source.name) },
                     onClearCookies = { vm.clearCookies(source.baseUrl) },
+                    onSettings = { preferencesSourceId = source.id },
                 )
             }
         }
@@ -162,6 +172,7 @@ private fun SourceRow(
     onOpenInBrowser: () -> Unit,
     onShare: () -> Unit,
     onClearCookies: () -> Unit,
+    onSettings: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -204,6 +215,15 @@ private fun SourceRow(
         }
 
         DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            // First entry because an unconfigured source (no mirror set) looks
+            // broken until this is used, so it is the most likely reason to be
+            // in this menu at all.
+            if (source.hasPreferences) {
+                DropdownMenuItem(
+                    text = { Text("Settings") },
+                    onClick = { menuOpen = false; onSettings() },
+                )
+            }
             DropdownMenuItem(
                 text = { Text(if (source.pinned) "Unpin" else "Pin") },
                 onClick = { menuOpen = false; onTogglePin() },

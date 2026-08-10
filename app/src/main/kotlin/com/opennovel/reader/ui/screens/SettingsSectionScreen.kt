@@ -467,16 +467,9 @@ private fun DownloadsSection(factory: ViewModelProvider.Factory) {
     val context = LocalContext.current
 
     PrefSection("Location") {
-        Text(
-            s.downloadLocation.ifBlank {
-                context.getExternalFilesDir(null)?.absolutePath ?: context.filesDir.absolutePath
-            },
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f),
-        )
-        // TODO: allow picking a custom root via OpenDocumentTree once the
-        // Downloader (owned elsewhere) can write through a SAF tree URI.
-        Hint("Downloads are stored in app-private storage and removed when Hibana is uninstalled.")
+        // The picker owns its own state and permission handling, so Settings
+        // just hosts it rather than duplicating the SAF plumbing.
+        DownloadLocationCard()
     }
 
     PrefSection("Automatic downloads") {

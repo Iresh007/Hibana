@@ -12,6 +12,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.opennovel.reader.NovelReaderApp
 import com.opennovel.reader.data.AppSection
+import com.opennovel.reader.extension.SourcePreferences
 import com.opennovel.reader.migration.MigrationCandidate
 import com.opennovel.reader.migration.MigrationOptions
 import com.opennovel.reader.migration.MigrationSearch
@@ -46,6 +47,8 @@ data class BrowseSource(
     val pkgId: String,
     val supportsLatest: Boolean,
     val pinned: Boolean,
+    /** Whether the extension declares a settings screen for this source. */
+    val hasPreferences: Boolean = false,
 )
 
 /**
@@ -129,6 +132,7 @@ class SourceListViewModel(private val appContext: Context) : ViewModel() {
                 }?.pkgId.orEmpty(),
                 supportsLatest = source.supportsLatest,
                 pinned = source.id.toString() in pins,
+                hasPreferences = SourcePreferences.isConfigurable(source),
             )
         }.sortedBy { it.name.lowercase() }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
