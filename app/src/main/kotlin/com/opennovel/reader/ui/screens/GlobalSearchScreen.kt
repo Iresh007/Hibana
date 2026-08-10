@@ -40,6 +40,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
@@ -48,6 +49,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.opennovel.reader.source.model.SNovel
 import com.opennovel.reader.ui.BrowseViewModel
+import com.opennovel.reader.ui.SectionScopeViewModel
 import com.opennovel.reader.ui.SourceSearchResult
 import kotlinx.coroutines.launch
 
@@ -59,9 +61,6 @@ import kotlinx.coroutines.launch
  * source answers rather than waiting for the slowest one — with a dozen
  * extensions installed, a single combined list would stall behind whichever
  * source is worst.
- *
- * Note: when manga and novels are split into separate sections, this screen is
- * the natural place to scope by content type — the grouping already exists.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -71,8 +70,19 @@ fun GlobalSearchScreen(
     onBack: () -> Unit,
     initialQuery: String = "",
 ) {
+    val context = LocalContext.current
     val vm: BrowseViewModel = viewModel(factory = factory)
-    val results by vm.global.collectAsStateWithLifecycle()
+    val sectionVm: SectionScopeViewModel =
+        viewModel(factory = remember(context) { SectionScopeViewModel.factory(context) })
+    val allResults by vm.global.collectAsStateWithLifecycle()
+    val section by sectionVm.section.collectAsStateWithLifecycle()
+    val sectionSourceIds by sectionVm.sourceIds.collectAsStateWithLifecycle()
+
+    // Scoped to the active section for the same reason Browse is: a result the
+    // section cannot open is worse than no result.
+    val results = remember(allResults, sectionSourceIds) {
+        allResults.filter { it.sourceId in sectionSourceIds }
+    }
     val scope = rememberCoroutineScope()
     val added = remember { mutableStateMapOf<String, Boolean>() }
 
@@ -97,7 +107,7 @@ fun GlobalSearchScreen(
             value = query,
             onValueChange = { query = it },
             singleLine = true,
-            label = { Text("Search all installed sources") },
+            label = { Text("Search all ${section.label} sources") },
             modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp),
         )
         LaunchedEffect(query) {
@@ -108,7 +118,8 @@ fun GlobalSearchScreen(
             results.isEmpty() -> Box(Modifier.fillMaxSize(), Alignment.Center) {
                 Text(
                     if (query.length < 2) {
-                        "Type at least two characters to search every source."
+                        "Type at least two characters to search every " +
+                            "${section.label} source."
                     } else {
                         "Searching…"
                     },

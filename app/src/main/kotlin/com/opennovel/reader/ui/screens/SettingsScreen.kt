@@ -46,8 +46,8 @@ enum class SettingsSection(
     val icon: ImageVector,
 ) {
     APPEARANCE("appearance", "Appearance", "Theme, colours, language", Icons.Filled.Palette),
-    LIBRARY("library", "Library", "Categories, global updates, badges, layout", Icons.Filled.CollectionsBookmark),
-    READER("reader", "Reader", "Comic layout and novel typography", Icons.Filled.MenuBook),
+    LIBRARY("library", "Library", "Categories, global updates, per-shelf layout and badges", Icons.Filled.CollectionsBookmark),
+    READER("reader", "Reader", "Comic layout and novel typography, kept separate", Icons.Filled.MenuBook),
     TTS_TRANSLATION(
         "tts_translation",
         "Narration & translation",

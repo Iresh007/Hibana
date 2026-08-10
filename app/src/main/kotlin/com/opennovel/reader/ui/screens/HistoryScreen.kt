@@ -41,6 +41,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.opennovel.reader.data.AppSection
 import com.opennovel.reader.data.db.HistoryWithNovel
 import com.opennovel.reader.ui.HistoryViewModel
 
@@ -52,6 +53,7 @@ fun HistoryScreen(
 ) {
     val vm: HistoryViewModel = viewModel(factory = factory)
     val entries by vm.history.collectAsStateWithLifecycle()
+    val section by vm.activeSection.collectAsStateWithLifecycle()
     var confirmClear by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
@@ -67,7 +69,7 @@ fun HistoryScreen(
         )
 
         if (entries.isEmpty()) {
-            EmptyHistory()
+            EmptyHistory(section)
         } else {
             LazyColumn(contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
                 items(entries, key = { it.novelId }) { entry ->
@@ -84,8 +86,13 @@ fun HistoryScreen(
     if (confirmClear) {
         AlertDialog(
             onDismissRequest = { confirmClear = false },
-            title = { Text("Clear history?") },
-            text = { Text("This removes every entry. Your library and reading progress stay intact.") },
+            title = { Text("Clear ${section.label} history?") },
+            text = {
+                Text(
+                    "This removes every entry in this section. The other section, your " +
+                        "library and your reading progress stay intact.",
+                )
+            },
             confirmButton = {
                 TextButton(onClick = { vm.clearAll(); confirmClear = false }) { Text("Clear") }
             },
@@ -160,17 +167,20 @@ private fun HistoryRow(
 }
 
 @Composable
-private fun EmptyHistory() {
+private fun EmptyHistory(section: AppSection) {
     Box(Modifier.fillMaxSize(), Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(horizontal = 32.dp),
+        ) {
             Icon(
                 Icons.Filled.History,
                 contentDescription = null,
                 modifier = Modifier.padding(8.dp),
             )
-            Text("No reading history yet", style = MaterialTheme.typography.titleMedium)
+            Text("No ${section.label} history yet", style = MaterialTheme.typography.titleMedium)
             Text(
-                "Chapters you read show up here",
+                "Install a ${section.label} extension, then chapters you read show up here",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )

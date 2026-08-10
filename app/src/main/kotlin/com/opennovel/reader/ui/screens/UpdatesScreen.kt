@@ -45,6 +45,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.opennovel.reader.data.db.ChapterWithNovel
 import com.opennovel.reader.ui.UpdatesViewModel
+
 import java.util.Calendar
 import java.util.concurrent.TimeUnit
 
@@ -69,6 +70,7 @@ fun UpdatesScreen(
     val progress by vm.progress.collectAsStateWithLifecycle()
     val message by vm.message.collectAsStateWithLifecycle()
     val lastRefresh by vm.lastRefresh.collectAsStateWithLifecycle()
+    val section by vm.activeSection.collectAsStateWithLifecycle()
 
     val snackbars = remember { SnackbarHostState() }
     LaunchedEffect(message) {
@@ -113,8 +115,9 @@ fun UpdatesScreen(
         if (sections.isEmpty()) {
             Box(Modifier.fillMaxSize().padding(padding), Alignment.Center) {
                 Text(
-                    "No new chapters.\n\nUpdates lists chapters that appear after an entry " +
-                        "joins your library, so this stays empty until something new releases.",
+                    "No new ${section.label} chapters.\n\nUpdates lists chapters that appear " +
+                        "after an entry joins your library, so this stays empty until " +
+                        "something in this section releases.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     modifier = Modifier.padding(32.dp),

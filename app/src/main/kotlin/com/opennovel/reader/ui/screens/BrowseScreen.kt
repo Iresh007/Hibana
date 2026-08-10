@@ -56,6 +56,7 @@ fun BrowseScreen(
     val context = LocalContext.current
     val vm: SourceListViewModel = viewModel(factory = SourceListViewModel.factory(context))
     val sources by vm.sources.collectAsStateWithLifecycle()
+    val section by vm.section.collectAsStateWithLifecycle()
 
     var openSource by remember { mutableStateOf<Pair<Long, Boolean>?>(null) }
     var webViewSource by remember { mutableStateOf<BrowseSource?>(null) }
@@ -85,7 +86,11 @@ fun BrowseScreen(
     if (sources.isEmpty()) {
         Box(Modifier.fillMaxSize(), Alignment.Center) {
             Text(
-                "No sources yet.\nInstall an extension from the Extensions tab.",
+                // Named per section so an empty list reads as "none of this
+                // kind" rather than "the app found nothing at all" — the other
+                // section may well be full.
+                "No ${section.label} sources yet.\n" +
+                    "Install a ${section.label} extension from the Extensions tab.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                 modifier = Modifier.padding(32.dp),

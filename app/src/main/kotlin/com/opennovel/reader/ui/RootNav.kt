@@ -1,6 +1,7 @@
 package com.opennovel.reader.ui
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -14,11 +15,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.viewmodel.compose.viewModel
+import com.opennovel.reader.data.AppSection
 import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
@@ -90,6 +100,7 @@ private fun HomeTabs(factory: ViewModelProvider.Factory, nav: NavHostController)
     val scope = rememberCoroutineScope()
 
     Scaffold(
+        topBar = { SectionSwitcher(factory) },
         bottomBar = {
             NavigationBar {
                 bottomDests.forEachIndexed { index, dest ->
@@ -159,6 +170,33 @@ private fun HomeTabs(factory: ViewModelProvider.Factory, nav: NavHostController)
                     onOpenSettingsSection = { section -> nav.navigate("settings/$section") },
                     onOpenStats = { nav.navigate("stats") },
                 )
+            }
+        }
+    }
+}
+
+/**
+ * Switches the whole shell between comics and prose.
+ *
+ * It sits above the pager rather than becoming a sixth bottom tab because it is
+ * not a destination: it re-scopes the five tabs that already exist. Hosting it in
+ * the shell also means it stays put — and keeps its state — while pages swap.
+ */
+@Composable
+private fun SectionSwitcher(factory: ViewModelProvider.Factory) {
+    val vm: SectionViewModel = viewModel(factory = factory)
+    val active by vm.active.collectAsStateWithLifecycle()
+
+    Surface(tonalElevation = 2.dp) {
+        SingleChoiceSegmentedButtonRow(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+        ) {
+            AppSection.entries.forEachIndexed { index, section ->
+                SegmentedButton(
+                    selected = active == section,
+                    onClick = { vm.select(section) },
+                    shape = SegmentedButtonDefaults.itemShape(index, AppSection.entries.size),
+                ) { Text(section.label) }
             }
         }
     }

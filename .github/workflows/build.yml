@@ -48,10 +48,12 @@ jobs:
       - name: Unit tests
         run: gradle :app:testDebugUnitTest --stacktrace
 
-      # Lint should surface problems without gating the build on pre-existing
-      # warnings; the report is uploaded for inspection either way.
+      # Lint errors fail the job; warnings do not (see the lint block in
+      # app/build.gradle.kts). Swallowing the exit code here meant genuine
+      # defects were reported as annotations on a green build and went
+      # unnoticed. The report is uploaded either way.
       - name: Lint
-        run: gradle :app:lintDebug --stacktrace || true
+        run: gradle :app:lintDebug --stacktrace
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v6

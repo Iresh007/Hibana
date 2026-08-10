@@ -85,6 +85,16 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+
+    lint {
+        // Errors fail the build; warnings do not. Lint's Compose checks catch
+        // real defects — a `remember` returning Unit re-runs on recomposition
+        // and stores nothing — and reporting those as annotations on a green
+        // build meant they were seen and ignored. Warnings stay non-fatal so
+        // pre-existing noise doesn't block work.
+        abortOnError = true
+        warningsAsErrors = false
+    }
     buildFeatures { compose = true }
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }

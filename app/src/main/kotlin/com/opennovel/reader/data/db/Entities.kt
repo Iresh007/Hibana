@@ -201,6 +201,11 @@ data class ChapterWithNovel(
     val dateFetch: Long,
     val novelTitle: String,
     val coverUrl: String?,
+    /**
+     * Carried from the parent novel so the feeds can be narrowed to the active
+     * section without a second query per row. See [ContentType].
+     */
+    val contentType: String = ContentType.UNKNOWN.name,
 )
 
 /** One chapter's release time, for estimating an entry's publishing cadence. */
@@ -217,4 +222,6 @@ data class HistoryWithNovel(
     val title: String,
     val coverUrl: String?,
     val chapterName: String,
+    /** Carried from the parent novel so History can be scoped to a section. */
+    val contentType: String = ContentType.UNKNOWN.name,
 )

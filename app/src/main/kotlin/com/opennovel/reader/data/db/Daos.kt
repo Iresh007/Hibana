@@ -88,7 +88,7 @@ interface ChapterDao {
         SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
                c.read AS read, c.bookmark AS bookmark, c.downloaded AS downloaded,
                c.dateUpload AS dateUpload, c.dateFetch AS dateFetch,
-               n.title AS novelTitle, n.coverUrl AS coverUrl
+               n.title AS novelTitle, n.coverUrl AS coverUrl, n.contentType AS contentType
         FROM chapters c
         JOIN novels n ON n.id = c.novelId
         WHERE n.inLibrary = 1 AND c.dateFetch > n.dateAdded
@@ -177,7 +177,7 @@ interface ChapterDao {
         SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
                c.read AS read, c.bookmark AS bookmark, c.downloaded AS downloaded,
                c.dateUpload AS dateUpload, c.dateFetch AS dateFetch,
-               n.title AS novelTitle, n.coverUrl AS coverUrl
+               n.title AS novelTitle, n.coverUrl AS coverUrl, n.contentType AS contentType
         FROM chapters c
         JOIN novels n ON n.id = c.novelId
         WHERE c.downloaded = 1
@@ -259,7 +259,8 @@ interface HistoryDao {
     @Query(
         """
         SELECT h.novelId AS novelId, h.chapterId AS chapterId, h.readAt AS readAt,
-               n.title AS title, n.coverUrl AS coverUrl, c.name AS chapterName
+               n.title AS title, n.coverUrl AS coverUrl, c.name AS chapterName,
+               n.contentType AS contentType
         FROM history h
         JOIN novels n ON n.id = h.novelId
         JOIN chapters c ON c.id = h.chapterId

@@ -8,7 +8,6 @@ import com.opennovel.reader.extension.Ecosystem
 import com.opennovel.reader.extension.ExtensionLoader
 import com.opennovel.reader.extension.ireader.IReaderExtensionLoader
 import com.opennovel.reader.source.SourceManager
-import com.opennovel.reader.source.builtin.GutenbergSource
 import com.opennovel.reader.tts.TtsManager
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.first
@@ -35,6 +34,9 @@ class AppContainer(context: Context) {
 
     // Declared before the library repository, which reads incognito mode from it.
     val settingsRepository = SettingsRepository(context)
+
+    /** Which half of the app is active, and the preferences scoped to it. */
+    val sectionRepository = SectionRepository(context)
 
     val libraryRepository = LibraryRepository(
         novelDao = database.novelDao(),
@@ -115,8 +117,9 @@ class AppContainer(context: Context) {
             com.opennovel.reader.extension.ireader.IReaderDependencyFactory.create(ctx, pkg)
         }
 
-        // Register built-in sources so the app has content on first launch.
-        sourceManager.register(GutenbergSource(httpClient))
+        // No sources are registered here. The app ships with nothing installed:
+        // every source arrives through an extension the user chose to install
+        // and trust, so what the app can reach is always something they decided.
     }
 
     /** Scan installed Mihon/Manatan/IReader extensions and register their sources. */

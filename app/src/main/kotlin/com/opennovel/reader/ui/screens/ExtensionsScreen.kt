@@ -50,10 +50,12 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.opennovel.reader.data.AppSection
 import com.opennovel.reader.extension.Ecosystem
 import com.opennovel.reader.extension.ExtensionInfo
 import com.opennovel.reader.extension.RepoExtension
 import com.opennovel.reader.ui.ExtensionsViewModel
+import com.opennovel.reader.ui.SectionScopeViewModel
 
 /**
  * Extension manager: one grouped list of what needs updating, what's installed,
@@ -70,10 +72,14 @@ fun ExtensionsScreen(
     onBrowseSource: (Long) -> Unit = {},
     onOpenExtensionInfo: (String) -> Unit = {},
 ) {
+    val context = LocalContext.current
     val vm: ExtensionsViewModel = viewModel(factory = factory)
-    val installed by vm.installed.collectAsStateWithLifecycle()
-    val catalogue by vm.catalogue.collectAsStateWithLifecycle()
-    val updatable by vm.updatable.collectAsStateWithLifecycle()
+    val sectionVm: SectionScopeViewModel =
+        viewModel(factory = remember(context) { SectionScopeViewModel.factory(context) })
+    val section by sectionVm.section.collectAsStateWithLifecycle()
+    val allInstalled by vm.installed.collectAsStateWithLifecycle()
+    val allCatalogue by vm.catalogue.collectAsStateWithLifecycle()
+    val allUpdatable by vm.updatable.collectAsStateWithLifecycle()
     val languages by vm.languages.collectAsStateWithLifecycle()
     val enabledLanguages by vm.enabledLanguages.collectAsStateWithLifecycle()
     val busy by vm.busy.collectAsStateWithLifecycle()
@@ -82,6 +88,19 @@ fun ExtensionsScreen(
     var showLanguages by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.refreshInstalled(); vm.refreshCatalogue() }
+
+    // An extension can only ever serve one section, so showing the other
+    // section's packages here would offer installs that this half of the app
+    // could never use.
+    val installed = remember(allInstalled, section) {
+        allInstalled.filter { AppSection.of(it.ecosystem) == section }
+    }
+    val catalogue = remember(allCatalogue, section) {
+        allCatalogue.filter { AppSection.of(it.ecosystem) == section }
+    }
+    val updatable = remember(allUpdatable, section) {
+        allUpdatable.filter { AppSection.of(it.ecosystem) == section }
+    }
 
     // The catalogue is already language-filtered by the ViewModel; installed
     // extensions are filtered here so one toggle governs the whole screen.
@@ -98,7 +117,18 @@ fun ExtensionsScreen(
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text("Extensions") },
+            title = {
+                Column {
+                    Text("Extensions")
+                    // The list is scoped, so the bar has to say what it is
+                    // scoped to; otherwise a missing extension looks like a bug.
+                    Text(
+                        section.label,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    )
+                }
+            },
             actions = {
                 if (languages.isNotEmpty()) {
                     IconButton(onClick = { showLanguages = true }) {
@@ -137,7 +167,8 @@ fun ExtensionsScreen(
                     Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
 
                 installedShown.isEmpty() && catalogue.isEmpty() -> EmptyExtensions(
-                    "No extensions yet.\nAdd an extension store, then install from Available.",
+                    "No ${section.label} extensions yet.\n" +
+                        "Add an extension store, then install from Available.",
                 )
 
                 else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
@@ -163,7 +194,7 @@ fun ExtensionsScreen(
                     }
                     if (installedShown.isEmpty()) {
                         item(key = "installed-empty") {
-                            SectionNote("Nothing installed yet.")
+                            SectionNote("No ${section.label} extensions installed yet.")
                         }
                     }
                     items(installedShown, key = { it.ecosystem.name + "/" + it.pkgId }) { info ->
@@ -186,7 +217,10 @@ fun ExtensionsScreen(
                     }
                     if (available.isEmpty()) {
                         item(key = "available-empty") {
-                            SectionNote("Nothing available. Check your extension stores, or clear the language filter.")
+                            SectionNote(
+                                "No ${section.label} extensions available. " +
+                                    "Check your extension stores, or clear the language filter.",
+                            )
                         }
                     }
                     items(available, key = { "a/" + it.repoUrl + "/" + it.pkgId }) { item ->
