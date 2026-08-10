@@ -40,6 +40,8 @@ import androidx.compose.material3.BottomAppBar
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
@@ -68,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.opennovel.reader.data.db.ContentType
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.opennovel.reader.data.ChapterGap
@@ -137,6 +140,30 @@ fun NovelDetailScreen(
                     }
                     IconButton(onClick = vm::refresh) {
                         Icon(Icons.Filled.Refresh, contentDescription = "Refresh chapters")
+                    }
+                    var typeMenu by remember { mutableStateOf(false) }
+                    IconButton(onClick = { typeMenu = true }) {
+                        Icon(Icons.Filled.MoreVert, contentDescription = "More")
+                    }
+                    DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
+                        val current = ContentType.from(novel?.contentType)
+                        Text(
+                            "Read this as",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+                        )
+                        listOf(ContentType.COMIC to "Comic", ContentType.NOVEL to "Novel").forEach { (type, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label) },
+                                onClick = { vm.setContentType(type); typeMenu = false },
+                                leadingIcon = {
+                                    if (current == type) {
+                                        Icon(Icons.Filled.Check, contentDescription = null)
+                                    }
+                                },
+                            )
+                        }
                     }
                 },
             )

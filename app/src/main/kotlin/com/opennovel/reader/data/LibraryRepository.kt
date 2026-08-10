@@ -2,6 +2,7 @@ package com.opennovel.reader.data
 
 import com.opennovel.reader.data.db.CategoryDao
 import com.opennovel.reader.data.db.CategoryEntity
+import com.opennovel.reader.data.db.ContentType
 import com.opennovel.reader.data.db.ChapterDao
 import com.opennovel.reader.data.db.ChapterEntity
 import com.opennovel.reader.data.db.HistoryDao
@@ -174,6 +175,11 @@ class LibraryRepository(
             coverUrl = novel.coverUrl ?: existing?.coverUrl,
             genres = novel.genres.joinToString(","),
             status = novel.status.name,
+            // Only ever fills in an unset type, so a user's manual correction is
+            // never overwritten by a later refresh.
+            contentType = existing?.contentType
+                ?.takeIf { ContentType.from(it) != ContentType.UNKNOWN }
+                ?: defaultContentTypeFor(sourceId).name,
         )
         return if (existing != null) {
             novelDao.update(entity); entity.id
@@ -185,6 +191,27 @@ class LibraryRepository(
     suspend fun addToLibrary(novelId: Long, inLibrary: Boolean) {
         novelDao.setInLibrary(novelId, inLibrary, System.currentTimeMillis())
     }
+
+    /**
+     * Whether a source's entries are comics or prose, inferred from what the
+     * source can actually serve: only comic sources can produce page images.
+     *
+     * Inferred from capability rather than from which ecosystem the extension
+     * came from, because the ecosystems are not clean proxies — Mihon sources
+     * carry text works and IReader hosts illustrated ones — and because the
+     * capability is what the decision is really about: which reader to open.
+     * It is only a default; [setContentType] lets the user correct any entry,
+     * and that correction sticks.
+     */
+    private fun defaultContentTypeFor(sourceId: Long): ContentType =
+        when (sourceManager.get(sourceId)) {
+            is com.opennovel.reader.source.ImageChapterSource -> ContentType.COMIC
+            null -> ContentType.UNKNOWN
+            else -> ContentType.NOVEL
+        }
+
+    suspend fun setContentType(novelId: Long, type: ContentType) =
+        novelDao.setContentType(novelId, type.name)
 
     /**
      * Fetches chapters from the source and persists any new ones, stamping each

@@ -46,6 +46,9 @@ import androidx.compose.material3.TabRow
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -64,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.opennovel.reader.data.db.ContentType
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.opennovel.reader.data.LibraryDisplayMode
@@ -99,6 +103,8 @@ fun LibraryScreen(
     val filters by vm.filters.collectAsStateWithLifecycle()
     val chapterCount by vm.visibleChapterCount.collectAsStateWithLifecycle()
     val categoryCounts by vm.categoryCounts.collectAsStateWithLifecycle()
+    val contentFilter by vm.contentFilter.collectAsStateWithLifecycle()
+    val hasMixed by vm.hasMixedContent.collectAsStateWithLifecycle()
     val inSelectionMode = selection.isNotEmpty()
 
     Column(Modifier.fillMaxSize()) {
@@ -157,6 +163,29 @@ fun LibraryScreen(
                     LibraryOverflowMenu(onEditCategories = { showEditCategories = true })
                 },
             )
+        }
+
+        // Comics / novels narrowing, shown only when the library actually holds
+        // both. One shelf with a filter rather than two separate sections: the
+        // two kinds differ only in which reader opens them, and everything
+        // around them — categories, updates, history, search — is shared.
+        if (hasMixed) {
+            SingleChoiceSegmentedButtonRow(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                val segments = listOf(
+                    ContentType.UNKNOWN to "All",
+                    ContentType.COMIC to "Comics",
+                    ContentType.NOVEL to "Novels",
+                )
+                segments.forEachIndexed { index, (type, label) ->
+                    SegmentedButton(
+                        selected = contentFilter == type,
+                        onClick = { vm.setContentFilter(type) },
+                        shape = SegmentedButtonDefaults.itemShape(index, segments.size),
+                    ) { Text(label) }
+                }
+            }
         }
 
         // Category tabs (Mihon-style) — only when the user has created categories.

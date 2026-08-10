@@ -39,6 +39,9 @@ interface NovelDao {
 
     @Query("UPDATE novels SET lastReadChapterId = :chapterId WHERE id = :novelId")
     suspend fun setLastReadChapter(novelId: Long, chapterId: Long)
+
+    @Query("UPDATE novels SET contentType = :type WHERE id = :novelId")
+    suspend fun setContentType(novelId: Long, type: String)
 }
 
 @Dao

@@ -10,6 +10,7 @@ import com.opennovel.reader.data.SettingsRepository
 import com.opennovel.reader.data.ThemeMode
 import com.opennovel.reader.data.db.CategoryEntity
 import com.opennovel.reader.data.db.ChapterEntity
+import com.opennovel.reader.data.db.ContentType
 import com.opennovel.reader.data.db.HistoryWithNovel
 import com.opennovel.reader.data.db.NovelEntity
 import com.opennovel.reader.download.Downloader
@@ -153,12 +154,28 @@ class LibraryViewModel(
     val filters: StateFlow<LibraryFilters> = _filters.asStateFlow()
 
     /**
+     * Comics / novels narrowing. Deliberately a filter over one library rather
+     * than two separate top-level sections: everything else — updates, history,
+     * downloads, categories, search — is shared, and splitting the app in two
+     * would duplicate all of it to separate two kinds of entry that behave
+     * identically outside the reader.
+     */
+    private val _contentFilter = MutableStateFlow(ContentType.UNKNOWN)
+    val contentFilter: StateFlow<ContentType> = _contentFilter.asStateFlow()
+
+    /**
      * Category + search narrowing. Split from the filter/sort stage below
      * because `combine` tops out at five flows, and splitting also means a
      * filter change doesn't re-run category matching.
      */
     private val scopedLibrary =
-        combine(repo.observeLibrary(), assignments, _query, _selectedCategory) { novels, refs, query, categoryId ->
+        combine(
+            repo.observeLibrary(),
+            assignments,
+            _query,
+            _selectedCategory,
+            _contentFilter,
+        ) { novels, refs, query, categoryId, contentFilter ->
             val byCategory = if (categoryId == DEFAULT_CATEGORY_ID) {
                 val assignedNovelIds = refs.map { it.novelId }.toSet()
                 novels.filter { it.id !in assignedNovelIds }
@@ -166,13 +183,34 @@ class LibraryViewModel(
                 val idsInCategory = refs.filter { it.categoryId == categoryId }.map { it.novelId }.toSet()
                 novels.filter { it.id in idsInCategory }
             }
-            if (query.isBlank()) byCategory
-            else byCategory.filter { it.title.contains(query.trim(), ignoreCase = true) }
+            val byType = if (contentFilter == ContentType.UNKNOWN) {
+                byCategory
+            } else {
+                byCategory.filter { ContentType.from(it.contentType) == contentFilter }
+            }
+            if (query.isBlank()) byType
+            else byType.filter { it.title.contains(query.trim(), ignoreCase = true) }
         }
 
     /** Flips whichever sort is active, rather than doubling every sort option. */
     private val _reverseSort = MutableStateFlow(false)
     val reverseSort: StateFlow<Boolean> = _reverseSort.asStateFlow()
+
+    /** [ContentType.UNKNOWN] here means "no narrowing", i.e. show everything. */
+    fun setContentFilter(type: ContentType) { _contentFilter.value = type }
+
+    /**
+     * Whether the library actually holds both kinds. The segmented control is
+     * hidden otherwise — a comics-only library gains nothing from a control that
+     * can only ever filter to everything or nothing.
+     */
+    val hasMixedContent: StateFlow<Boolean> =
+        repo.observeLibrary()
+            .map { novels ->
+                val types = novels.map { ContentType.from(it.contentType) }.toSet()
+                ContentType.COMIC in types && ContentType.NOVEL in types
+            }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
 
     /** Library after tri-state filters, ordered by the chosen sort. */
     val library: StateFlow<List<NovelEntity>> =
@@ -563,6 +601,16 @@ class NovelDetailViewModel(
     fun toggleLibrary() {
         val n = novel.value ?: return
         viewModelScope.launch { repo.addToLibrary(n.id, !n.inLibrary) }
+    }
+
+    /**
+     * Corrects how an entry is classified. The type is inferred from what the
+     * source can serve, which is right almost always but not by construction —
+     * this is the escape hatch, and it sticks across refreshes.
+     */
+    fun setContentType(type: ContentType) {
+        val n = novel.value ?: return
+        viewModelScope.launch { repo.setContentType(n.id, type) }
     }
 
     fun markRead(chapterId: Long, read: Boolean) =
