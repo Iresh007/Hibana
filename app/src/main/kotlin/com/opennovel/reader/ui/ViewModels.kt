@@ -113,9 +113,10 @@ data class LibraryFilters(
     val downloaded: FilterState = FilterState.IGNORED,
     val unread: FilterState = FilterState.IGNORED,
     val started: FilterState = FilterState.IGNORED,
+    val completed: FilterState = FilterState.IGNORED,
 ) {
     val active: Int
-        get() = listOf(downloaded, unread, started).count { it != FilterState.IGNORED }
+        get() = listOf(downloaded, unread, started, completed).count { it != FilterState.IGNORED }
 }
 
 class LibraryViewModel(
@@ -169,9 +170,19 @@ class LibraryViewModel(
             else byCategory.filter { it.title.contains(query.trim(), ignoreCase = true) }
         }
 
+    /** Flips whichever sort is active, rather than doubling every sort option. */
+    private val _reverseSort = MutableStateFlow(false)
+    val reverseSort: StateFlow<Boolean> = _reverseSort.asStateFlow()
+
     /** Library after tri-state filters, ordered by the chosen sort. */
     val library: StateFlow<List<NovelEntity>> =
-        combine(scopedLibrary, repo.observeNovelCounts(), _filters, _sort) { novels, countList, filters, sort ->
+        combine(
+            scopedLibrary,
+            repo.observeNovelCounts(),
+            _filters,
+            _sort,
+            _reverseSort,
+        ) { novels, countList, filters, sort, reversed ->
             val countsById = countList.associateBy { it.novelId }
             val filtered = novels.filter { novel ->
                 val c = countsById[novel.id]
@@ -179,9 +190,10 @@ class LibraryViewModel(
                 // started — treat as false rather than hiding the entry outright.
                 filters.downloaded.matches((c?.downloaded ?: 0) > 0) &&
                     filters.unread.matches((c?.unread ?: 0) > 0) &&
-                    filters.started.matches(c?.started == true)
+                    filters.started.matches(c?.started == true) &&
+                    filters.completed.matches(novel.status.contains("complet", ignoreCase = true))
             }
-            when (sort) {
+            val ordered = when (sort) {
                 LibrarySort.TITLE -> filtered.sortedBy { it.title.lowercase() }
                 LibrarySort.RECENTLY_ADDED -> filtered.sortedByDescending { it.dateAdded }
                 LibrarySort.TOTAL_CHAPTERS -> filtered.sortedByDescending { countsById[it.id]?.total ?: 0 }
@@ -192,7 +204,13 @@ class LibraryViewModel(
                 // make the grid unusable.
                 LibrarySort.RANDOM -> filtered.shuffled(java.util.Random(randomSeed))
             }
+            // Reversing the result flips whichever sort is active, so the sheet
+            // needs one direction toggle instead of an ascending and descending
+            // variant of every option.
+            if (reversed) ordered.asReversed() else ordered
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    fun toggleReverseSort() { _reverseSort.value = !_reverseSort.value }
 
     private val randomSeed = System.currentTimeMillis()
 
@@ -200,6 +218,24 @@ class LibraryViewModel(
     fun cycleUnreadFilter() { _filters.value = _filters.value.copy(unread = _filters.value.unread.next()) }
     fun cycleStartedFilter() { _filters.value = _filters.value.copy(started = _filters.value.started.next()) }
     fun clearFilters() { _filters.value = LibraryFilters() }
+
+    /** Chapters held by the entries currently on screen, for the top bar tally. */
+    val visibleChapterCount: StateFlow<Int> =
+        combine(library, counts) { novels, byId -> novels.sumOf { byId[it.id]?.total ?: 0 } }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    /** Entries per category tab, keyed by category id ([DEFAULT_CATEGORY_ID] = uncategorized). */
+    val categoryCounts: StateFlow<Map<Long, Int>> =
+        combine(repo.observeLibrary(), assignments) { novels, refs ->
+            val assigned = refs.groupBy { it.categoryId }
+            val assignedIds = refs.map { it.novelId }.toSet()
+            buildMap {
+                put(DEFAULT_CATEGORY_ID, novels.count { it.id !in assignedIds })
+                assigned.forEach { (categoryId, rows) ->
+                    put(categoryId, rows.map { it.novelId }.distinct().size)
+                }
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     fun setQuery(value: String) { _query.value = value }
 
@@ -436,14 +472,43 @@ class DownloadsViewModel(
     /** Live per-chapter state (RUNNING/DONE/FAILED) straight from the downloader. */
     val progress: StateFlow<Map<Long, com.opennovel.reader.download.DownloadState>> = downloader.progress
 
+    /** The pending/running queue; items drop out of it once they finish. */
+    val queue: StateFlow<List<com.opennovel.reader.download.QueuedDownload>> = downloader.queue
+
+    /** Selected downloaded chapters; empty means normal browsing. */
+    private val _selection = MutableStateFlow<Set<Long>>(emptySet())
+    val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
+
+    fun toggleSelection(chapterId: Long) {
+        _selection.value = if (chapterId in _selection.value) {
+            _selection.value - chapterId
+        } else {
+            _selection.value + chapterId
+        }
+    }
+
+    fun clearSelection() { _selection.value = emptySet() }
+
+    fun selectAll() { _selection.value = downloaded.value.map { it.chapterId }.toSet() }
+
     fun delete(chapterId: Long) = viewModelScope.launch { downloader.delete(chapterId) }
+
+    fun deleteSelected() = viewModelScope.launch {
+        val ids = _selection.value.toList()
+        _selection.value = emptySet()
+        downloader.delete(ids)
+    }
 
     /** Queues every not-yet-downloaded chapter of a novel. */
     fun downloadAll(novelId: Long) = viewModelScope.launch {
         downloader.enqueue(repo.undownloadedChapterIds(novelId))
     }
 
-    fun retry(chapterId: Long) = viewModelScope.launch { downloader.download(chapterId) }
+    fun cancel(chapterId: Long) = downloader.cancel(chapterId)
+
+    fun cancelAll() = downloader.cancelAll()
+
+    fun retry(chapterId: Long) = downloader.retry(chapterId)
 }
 
 class HistoryViewModel(private val repo: LibraryRepository) : ViewModel() {
@@ -503,7 +568,64 @@ class NovelDetailViewModel(
     fun markRead(chapterId: Long, read: Boolean) =
         viewModelScope.launch { repo.markRead(chapterId, read, if (read) 1f else 0f) }
 
-    fun download(chapterId: Long) = viewModelScope.launch { downloader.download(chapterId) }
+    fun setBookmark(chapterId: Long, bookmark: Boolean) =
+        viewModelScope.launch { repo.setBookmark(chapterId, bookmark) }
+
+    fun download(chapterId: Long) = viewModelScope.launch { downloader.enqueue(chapterId) }
+
+    fun deleteDownload(chapterId: Long) = viewModelScope.launch { downloader.delete(chapterId) }
+
+    fun cancelDownload(chapterId: Long) = downloader.cancel(chapterId)
+
+    /** Live queue, so a row can show "queued"/"downloading" before the DB flag flips. */
+    val queue: StateFlow<List<com.opennovel.reader.download.QueuedDownload>> = downloader.queue
+
+    // --- multi-select ---
+
+    private val _selection = MutableStateFlow<Set<Long>>(emptySet())
+    val selection: StateFlow<Set<Long>> = _selection.asStateFlow()
+
+    fun toggleSelection(chapterId: Long) {
+        _selection.value = if (chapterId in _selection.value) {
+            _selection.value - chapterId
+        } else {
+            _selection.value + chapterId
+        }
+    }
+
+    fun clearSelection() { _selection.value = emptySet() }
+
+    fun selectAll() { _selection.value = chapters.value.map { it.id }.toSet() }
+
+    fun invertSelection() {
+        val all = chapters.value.map { it.id }.toSet()
+        _selection.value = all - _selection.value
+    }
+
+    /** Batch actions leave selection mode, matching how Mihon's action bar behaves. */
+    fun markSelectedRead(read: Boolean) = viewModelScope.launch {
+        val ids = _selection.value.toList()
+        _selection.value = emptySet()
+        repo.markReadFor(ids, read)
+    }
+
+    fun bookmarkSelected(bookmark: Boolean) = viewModelScope.launch {
+        val ids = _selection.value.toList()
+        _selection.value = emptySet()
+        repo.setBookmarkFor(ids, bookmark)
+    }
+
+    fun downloadSelected() = viewModelScope.launch {
+        val ids = chapters.value.filter { it.id in _selection.value && !it.downloaded }.map { it.id }
+        _selection.value = emptySet()
+        downloader.enqueue(ids)
+    }
+
+    fun deleteSelectedDownloads() = viewModelScope.launch {
+        val ids = chapters.value.filter { it.id in _selection.value && it.downloaded }.map { it.id }
+        _selection.value = emptySet()
+        downloader.delete(ids)
+    }
 
     /** Resolve the resume/first chapter for the "Continue" button. */
     fun resume(onResolved: (Long?) -> Unit) {

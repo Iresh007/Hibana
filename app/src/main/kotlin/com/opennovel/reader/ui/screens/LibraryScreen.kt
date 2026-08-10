@@ -97,6 +97,8 @@ fun LibraryScreen(
     val counts by vm.counts.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val filters by vm.filters.collectAsStateWithLifecycle()
+    val chapterCount by vm.visibleChapterCount.collectAsStateWithLifecycle()
+    val categoryCounts by vm.categoryCounts.collectAsStateWithLifecycle()
     val inSelectionMode = selection.isNotEmpty()
 
     Column(Modifier.fillMaxSize()) {
@@ -126,7 +128,18 @@ fun LibraryScreen(
             )
         } else {
             TopAppBar(
-                title = { Text(if (novels.isEmpty()) "Library" else "Library (${novels.size})") },
+                title = {
+                    Column {
+                        Text("Library")
+                        if (novels.isNotEmpty()) {
+                            Text(
+                                "${novels.size} entries · $chapterCount chapters",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            )
+                        }
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showFilterSheet = true }) {
                         Icon(
@@ -155,7 +168,9 @@ fun LibraryScreen(
                     Tab(
                         selected = index == selectedIndex,
                         onClick = { vm.selectCategory(category.id) },
-                        text = { Text(category.name) },
+                        // The count lives in the tab label so switching shelves
+                        // shows how much is on each without opening it.
+                        text = { Text("${category.name} (${categoryCounts[category.id] ?: 0})") },
                     )
                 }
             }
@@ -201,6 +216,7 @@ fun LibraryScreen(
                                 novel = novel,
                                 unread = badge?.unread ?: 0,
                                 downloaded = badge?.downloaded ?: 0,
+                                total = badge?.total ?: 0,
                                 showBadges = settings.showLibraryBadges,
                                 selected = novel.id in selection,
                                 onClick = onTap,
@@ -212,6 +228,7 @@ fun LibraryScreen(
                                 selected = novel.id in selection,
                                 unread = badge?.unread ?: 0,
                                 downloaded = badge?.downloaded ?: 0,
+                                total = badge?.total ?: 0,
                                 showBadges = settings.showLibraryBadges,
                                 // Long-press starts selection; once in selection
                                 // mode a tap toggles rather than opening.
@@ -505,6 +522,7 @@ private fun NovelCover(
     selected: Boolean = false,
     unread: Int = 0,
     downloaded: Int = 0,
+    total: Int = 0,
     showBadges: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -547,11 +565,12 @@ private fun NovelCover(
                     }
                 }
             }
-            if (showBadges && (unread > 0 || downloaded > 0)) {
+            if (showBadges && (unread > 0 || downloaded > 0 || total > 0)) {
                 LibraryBadges(
                     unread = unread,
                     downloaded = downloaded,
-                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                    total = total,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
                 )
             }
             if (selected) {
@@ -559,7 +578,7 @@ private fun NovelCover(
                     Icons.Filled.CheckCircle,
                     contentDescription = "Selected",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
                 )
             }
         }
@@ -578,8 +597,23 @@ private fun NovelCover(
  * rely on to see what's worth opening without entering each entry.
  */
 @Composable
-private fun LibraryBadges(unread: Int, downloaded: Int, modifier: Modifier = Modifier) {
+private fun LibraryBadges(
+    unread: Int,
+    downloaded: Int,
+    total: Int = 0,
+    modifier: Modifier = Modifier,
+) {
     Row(modifier.clip(RoundedCornerShape(4.dp))) {
+        if (total > 0) {
+            Text(
+                total.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+            )
+        }
         if (unread > 0) {
             Text(
                 unread.toString(),
@@ -610,6 +644,7 @@ private fun NovelListRow(
     novel: NovelEntity,
     unread: Int,
     downloaded: Int,
+    total: Int,
     showBadges: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -654,7 +689,7 @@ private fun NovelListRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
         )
-        if (showBadges) LibraryBadges(unread = unread, downloaded = downloaded)
+        if (showBadges) LibraryBadges(unread = unread, downloaded = downloaded, total = total)
     }
 }
 

@@ -58,6 +58,13 @@ fun SourceBrowseScreen(
     factory: ViewModelProvider.Factory,
     onOpenNovel: (Long) -> Unit,
     onBack: () -> Unit,
+    /**
+     * Opens straight onto Latest instead of Popular. The browse list offers both
+     * as separate entry points, and landing on Popular after tapping "Latest"
+     * would silently ignore the choice. Defaults to false so the plain
+     * navigation route is unaffected.
+     */
+    initialLatest: Boolean = false,
 ) {
     val vm: SourceBrowseViewModel = viewModel(factory = factory)
     val results by vm.results.collectAsStateWithLifecycle()
@@ -66,7 +73,7 @@ fun SourceBrowseScreen(
     val supportsLatest by vm.supportsLatest.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
 
-    var tab by remember { mutableIntStateOf(0) }
+    var tab by remember(sourceId) { mutableIntStateOf(if (initialLatest) 1 else 0) }
 
     LaunchedEffect(sourceId) { vm.bind(sourceId) }
     LaunchedEffect(sourceId, tab) { if (tab == 0) vm.loadPopular() else vm.loadLatest() }
