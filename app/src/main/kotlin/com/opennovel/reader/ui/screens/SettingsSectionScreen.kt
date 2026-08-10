@@ -33,7 +33,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import com.opennovel.reader.ui.MaintenanceViewModel
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -597,13 +604,40 @@ private fun DataStorageSection(factory: ViewModelProvider.Factory) {
     }
 
     PrefSection("Storage") {
-        ActionRow(
-            title = "Clear chapter cache",
-            subtitle = "Drop cached chapter text and page images (downloads are kept)",
-            // TODO: needs Downloader/cache APIs that live outside this change set.
-            onClick = {},
-            enabled = false,
+        val maintenance: MaintenanceViewModel = viewModel(
+            factory = remember(context) { MaintenanceViewModel.factory(context) },
         )
+        val downloadedSize by maintenance.downloadedSize.collectAsStateWithLifecycle()
+        val busy by maintenance.busy.collectAsStateWithLifecycle()
+        var confirmClearDownloads by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) { maintenance.refreshCounts() }
+        MaintenanceMessages(maintenance)
+
+        ActionRow(
+            title = "Clear downloaded chapters",
+            subtitle = if (downloadedSize > 0) {
+                "${formatBytes(downloadedSize)} stored offline"
+            } else {
+                "Nothing is downloaded"
+            },
+            enabled = !busy && downloadedSize > 0,
+            onClick = { confirmClearDownloads = true },
+        )
+
+        if (confirmClearDownloads) {
+            // Downloads are the only content the app holds that cannot be
+            // re-fetched offline, so this confirms and states the cost.
+            ConfirmDialog(
+                title = "Clear downloaded chapters?",
+                body = "This deletes every downloaded chapter file, freeing about " +
+                    "${formatBytes(downloadedSize)}. Reading progress and bookmarks are kept, " +
+                    "and chapters can be downloaded again.",
+                confirmLabel = "Clear",
+                onConfirm = { confirmClearDownloads = false; maintenance.clearDownloadCache() },
+                onDismiss = { confirmClearDownloads = false },
+            )
+        }
         ActionRow(
             title = "Clear cookies",
             subtitle = "Sign out of every source and drop Cloudflare clearances",
@@ -680,13 +714,40 @@ private fun AdvancedSection(factory: ViewModelProvider.Factory) {
             subtitle = "Restore every preference to its default",
             onClick = extra::resetSettings,
         )
+        val maintenance: MaintenanceViewModel = viewModel(
+            factory = remember(context) { MaintenanceViewModel.factory(context) },
+        )
+        val cachedEntries by maintenance.cachedEntries.collectAsStateWithLifecycle()
+        val maintenanceBusy by maintenance.busy.collectAsStateWithLifecycle()
+        var confirmClearDatabase by remember { mutableStateOf(false) }
+
+        LaunchedEffect(Unit) { maintenance.refreshCounts() }
+        MaintenanceMessages(maintenance)
+
         ActionRow(
             title = "Clear database",
-            subtitle = "Remove entries that are not in your library",
-            // TODO: needs the Room DAOs, which are owned outside this change set.
-            onClick = {},
-            enabled = false,
+            subtitle = if (cachedEntries > 0) {
+                "$cachedEntries cached entr${if (cachedEntries == 1) "y" else "ies"} " +
+                    "left over from browsing"
+            } else {
+                "Nothing cached outside your library"
+            },
+            enabled = !maintenanceBusy && cachedEntries > 0,
+            onClick = { confirmClearDatabase = true },
         )
+
+        if (confirmClearDatabase) {
+            ConfirmDialog(
+                title = "Clear database?",
+                body = "This removes $cachedEntries entr" +
+                    "${if (cachedEntries == 1) "y" else "ies"} that were cached while browsing " +
+                    "but never added to your library. Library entries, their chapters, reading " +
+                    "progress and history are all kept.",
+                confirmLabel = "Clear",
+                onConfirm = { confirmClearDatabase = false; maintenance.clearCachedEntries() },
+                onDismiss = { confirmClearDatabase = false },
+            )
+        }
         message?.let {
             Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
         }
@@ -828,6 +889,49 @@ private fun RadioRow(
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else 0.4f),
         )
     }
+}
+
+/** Surfaces a maintenance action's result once, then clears it. */
+@Composable
+private fun MaintenanceMessages(vm: MaintenanceViewModel) {
+    val message by vm.message.collectAsStateWithLifecycle()
+    message?.let {
+        Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.primary)
+        LaunchedEffect(it) {
+            kotlinx.coroutines.delay(6000)
+            vm.consumeMessage()
+        }
+    }
+}
+
+/**
+ * Confirmation for an irreversible action, stating exactly what goes.
+ *
+ * A destructive row that fires on a single tap gives no chance to notice a
+ * mis-tap, and these cannot be undone.
+ */
+@Composable
+private fun ConfirmDialog(
+    title: String,
+    body: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(body) },
+        confirmButton = { TextButton(onClick = onConfirm) { Text(confirmLabel) } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+private fun formatBytes(bytes: Long): String = when {
+    bytes >= 1_073_741_824 -> "%.1f GB".format(bytes / 1_073_741_824.0)
+    bytes >= 1_048_576 -> "%.1f MB".format(bytes / 1_048_576.0)
+    bytes >= 1024 -> "%.0f KB".format(bytes / 1024.0)
+    else -> "$bytes B"
 }
 
 @Composable

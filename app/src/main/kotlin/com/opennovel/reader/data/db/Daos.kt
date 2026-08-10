@@ -42,6 +42,19 @@ interface NovelDao {
 
     @Query("UPDATE novels SET contentType = :type WHERE id = :novelId")
     suspend fun setContentType(novelId: Long, type: String)
+
+    /**
+     * Entries cached while browsing that were never added to the library.
+     *
+     * Kept separate from a blanket delete so "clear database" can never remove
+     * something the user actually shelved — the chapters and history of library
+     * entries hang off them by foreign key and would cascade away with them.
+     */
+    @Query("SELECT COUNT(*) FROM novels WHERE inLibrary = 0")
+    suspend fun countNotInLibrary(): Int
+
+    @Query("DELETE FROM novels WHERE inLibrary = 0")
+    suspend fun deleteNotInLibrary(): Int
 }
 
 @Dao
@@ -188,6 +201,13 @@ interface ChapterDao {
 
     @Query("SELECT id FROM chapters WHERE novelId = :novelId AND downloaded = 0 ORDER BY sourceOrder ASC")
     suspend fun undownloadedIds(novelId: Long): List<Long>
+
+    /** Every stored download path, for clearing the on-disk cache. */
+    @Query("SELECT downloadPath FROM chapters WHERE downloaded = 1 AND downloadPath IS NOT NULL")
+    suspend fun allDownloadPaths(): List<String>
+
+    @Query("UPDATE chapters SET downloaded = 0, downloadPath = NULL WHERE downloaded = 1")
+    suspend fun clearAllDownloadFlags(): Int
 
     /** Unread/downloaded tallies per novel, for library cover badges. */
     @Query(

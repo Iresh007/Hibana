@@ -4,8 +4,10 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.opennovel.reader.NovelReaderApp
 import com.opennovel.reader.data.AppSection
 import com.opennovel.reader.data.AutoBackupFrequency
+import com.opennovel.reader.data.MaintenanceRepository
 import com.opennovel.reader.data.LibraryDisplayMode
 import com.opennovel.reader.data.PageLayout
 import com.opennovel.reader.data.ReaderSettings
@@ -84,6 +86,68 @@ class SettingsSectionViewModel(private val repo: SettingsRepository) : ViewModel
                 @Suppress("UNCHECKED_CAST")
                 override fun <T : ViewModel> create(modelClass: Class<T>): T =
                     SettingsSectionViewModel(SettingsRepository(appContext)) as T
+            }
+        }
+    }
+}
+
+/**
+ * Backs the destructive housekeeping rows in Settings.
+ *
+ * These rows previously rendered permanently disabled with a TODO, which reads
+ * as a broken app rather than a missing feature. Each action reports what it
+ * removed, so a row that legitimately had nothing to do says so instead of
+ * appearing to fail.
+ */
+class MaintenanceViewModel(private val repo: MaintenanceRepository) : ViewModel() {
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+
+    /** Size on disk, refreshed on demand so the row can state the cost up front. */
+    private val _downloadedSize = MutableStateFlow(0L)
+    val downloadedSize: StateFlow<Long> = _downloadedSize.asStateFlow()
+
+    private val _cachedEntries = MutableStateFlow(0)
+    val cachedEntries: StateFlow<Int> = _cachedEntries.asStateFlow()
+
+    fun consumeMessage() { _message.value = null }
+
+    fun refreshCounts() = viewModelScope.launch {
+        _downloadedSize.value = runCatching { repo.downloadedSize() }.getOrDefault(0L)
+        _cachedEntries.value = runCatching { repo.cachedEntryCount() }.getOrDefault(0)
+    }
+
+    fun clearDownloadCache() = run {
+        _busy.value = true
+        viewModelScope.launch {
+            _message.value = runCatching { repo.clearDownloadCache().describe("download") }
+                .getOrElse { "Could not clear downloads: ${it.message}" }
+            _busy.value = false
+            refreshCounts()
+        }
+    }
+
+    fun clearCachedEntries() = run {
+        _busy.value = true
+        viewModelScope.launch {
+            _message.value = runCatching { repo.clearCachedEntries().describe("cached entry") }
+                .getOrElse { "Could not clear the database: ${it.message}" }
+            _busy.value = false
+            refreshCounts()
+        }
+    }
+
+    companion object {
+        fun factory(context: Context): ViewModelProvider.Factory {
+            val app = context.applicationContext as NovelReaderApp
+            return object : ViewModelProvider.Factory {
+                @Suppress("UNCHECKED_CAST")
+                override fun <T : ViewModel> create(modelClass: Class<T>): T =
+                    MaintenanceViewModel(app.container.maintenanceRepository) as T
             }
         }
     }

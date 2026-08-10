@@ -25,10 +25,17 @@ class LibraryUpdateWorker(
 
     override suspend fun doWork(): Result {
         val app = applicationContext as? NovelReaderApp ?: return Result.success()
+        val notifier = LibraryUpdateNotifier(applicationContext)
         return try {
-            app.container.libraryRepository.refreshLibrary()
+            val report = app.container.libraryRepository.refreshLibrary { done, total ->
+                notifier.progress(done, total)
+            }
+            notifier.result(report)
             Result.success()
         } catch (t: Throwable) {
+            // Clear the progress notification rather than leaving an ongoing one
+            // pinned for a run that has stopped.
+            notifier.clearProgress()
             Result.retry()
         } finally {
             // Keep one-shot chains alive even if the refresh failed.

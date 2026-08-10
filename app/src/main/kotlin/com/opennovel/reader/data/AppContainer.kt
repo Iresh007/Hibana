@@ -38,6 +38,12 @@ class AppContainer(context: Context) {
     /** Which half of the app is active, and the preferences scoped to it. */
     val sectionRepository = SectionRepository(context)
 
+    /** Destructive housekeeping actions exposed in Settings. */
+    val maintenanceRepository = MaintenanceRepository(
+        novelDao = database.novelDao(),
+        chapterDao = database.chapterDao(),
+    )
+
     val libraryRepository = LibraryRepository(
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
