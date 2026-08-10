@@ -74,9 +74,16 @@ class ExtensionRepoStore(private val context: Context) {
     private companion object {
         val REPOS = stringSetPreferencesKey("repos")
 
-        /** Ships with the well-known community repositories pre-filled. */
+        /**
+         * Ships with the well-known community repositories pre-filled.
+         *
+         * The Keiyoushi entry points at `index.json`, not the older
+         * `index.min.json`. That file still exists but now holds only "Outdated
+         * App" placeholders whose APKs are intentionally missing, so pointing at
+         * it yields a catalogue of two dead entries and a 404 on install.
+         */
         fun defaultRepos(): Set<String> = setOf(
-            "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.min.json|true",
+            "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json|true",
             "https://raw.githubusercontent.com/lnreader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json|true",
         )
     }

@@ -1,22 +1,27 @@
 package com.opennovel.reader.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.Upgrade
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,42 +30,45 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
-import androidx.compose.material3.Tab
-import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.compose.AsyncImage
+import com.opennovel.reader.extension.Ecosystem
 import com.opennovel.reader.extension.ExtensionInfo
+import com.opennovel.reader.extension.RepoExtension
 import com.opennovel.reader.ui.ExtensionsViewModel
 
 /**
- * Extension manager: what's installed across all four ecosystems, plus the
- * browsable LNReader plugin catalogue.
+ * Extension manager: one grouped list of what needs updating, what's installed,
+ * and what the enabled repos offer, in that order.
  *
- * APK-based ecosystems (Mihon/Manatan/IReader) are installed through the system
- * package manager, so they are listed but not installable from here — the
- * "Available" tab covers LNReader JS plugins, which Hibana can fetch directly.
+ * Updates lead because they are the only time-sensitive group; "Available" is
+ * last because it is unbounded — repos can list hundreds of entries.
  */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun ExtensionsScreen(
     factory: ViewModelProvider.Factory,
     onOpenRepos: () -> Unit = {},
     onBrowseSource: (Long) -> Unit = {},
+    onOpenExtensionInfo: (String) -> Unit = {},
 ) {
     val vm: ExtensionsViewModel = viewModel(factory = factory)
     val installed by vm.installed.collectAsStateWithLifecycle()
@@ -71,10 +79,22 @@ fun ExtensionsScreen(
     val busy by vm.busy.collectAsStateWithLifecycle()
     val status by vm.status.collectAsStateWithLifecycle()
 
-    var tab by remember { mutableIntStateOf(0) }
     var showLanguages by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) { vm.refreshInstalled(); vm.refreshCatalogue() }
+
+    // The catalogue is already language-filtered by the ViewModel; installed
+    // extensions are filtered here so one toggle governs the whole screen.
+    val installedShown = if (enabledLanguages.isEmpty()) {
+        installed
+    } else {
+        installed.filter { it.lang in enabledLanguages || it.lang == "all" }
+    }
+    val available = catalogue.filterNot { it.installed }
+
+    // Repo icons are keyed by package so an installed row can borrow the index
+    // icon when the package itself has none (LNReader plugins aren't packages).
+    val iconUrls = remember(catalogue) { catalogue.associate { it.pkgId to it.iconUrl } }
 
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
@@ -102,18 +122,6 @@ fun ExtensionsScreen(
             },
         )
 
-        TabRow(selectedTabIndex = tab) {
-            Tab(selected = tab == 0, onClick = { tab = 0 }, text = { Text("Installed (${installed.size})") })
-            Tab(
-                selected = tab == 1,
-                onClick = { tab = 1 },
-                // Update count is the reason to open this tab, so it goes in the label.
-                text = {
-                    Text(if (updatable.isEmpty()) "Available" else "Available (${updatable.size} update)")
-                },
-            )
-        }
-
         status?.let {
             Text(
                 it,
@@ -128,36 +136,65 @@ fun ExtensionsScreen(
                 busy && installed.isEmpty() && catalogue.isEmpty() ->
                     Box(Modifier.fillMaxSize(), Alignment.Center) { CircularProgressIndicator() }
 
-                tab == 0 && installed.isEmpty() -> EmptyExtensions(
-                    "No extensions installed.\nAdd an extension store, then install from Available.",
+                installedShown.isEmpty() && catalogue.isEmpty() -> EmptyExtensions(
+                    "No extensions yet.\nAdd an extension store, then install from Available.",
                 )
 
-                tab == 1 && catalogue.isEmpty() -> EmptyExtensions(
-                    "Nothing available.\nCheck your extension stores, or clear the language filter.",
-                )
+                else -> LazyColumn(contentPadding = PaddingValues(bottom = 24.dp)) {
+                    if (updatable.isNotEmpty()) {
+                        stickyHeader(key = "h-updates") {
+                            SectionHeader(
+                                title = "Update available (${updatable.size})",
+                                action = "Update all",
+                                onAction = { updatable.forEach(vm::installFromCatalogue) },
+                            )
+                        }
+                        items(updatable, key = { "u/" + it.repoUrl + "/" + it.pkgId }) { item ->
+                            RepoExtensionRow(
+                                item = item,
+                                actionLabel = "Update",
+                                onAction = { vm.installFromCatalogue(item) },
+                            )
+                        }
+                    }
 
-                tab == 0 -> LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
-                ) {
-                    items(installed, key = { it.ecosystem.name + "/" + it.pkgId }) { info ->
+                    stickyHeader(key = "h-installed") {
+                        SectionHeader("Installed (${installedShown.size})")
+                    }
+                    if (installedShown.isEmpty()) {
+                        item(key = "installed-empty") {
+                            SectionNote("Nothing installed yet.")
+                        }
+                    }
+                    items(installedShown, key = { it.ecosystem.name + "/" + it.pkgId }) { info ->
                         InstalledExtensionRow(
                             info = info,
-                            // Long-press opens the source's own catalogue, which
-                            // is how you discover what an extension actually has.
-                            onBrowse = {
+                            iconUrl = iconUrls[info.pkgId],
+                            onClick = { onOpenExtensionInfo(info.pkgId) },
+                            // Long-press still jumps straight into the source's
+                            // catalogue, which is the fast path for daily use.
+                            onLongClick = {
                                 if (info.trusted) vm.sourceIdsFor(info).firstOrNull()?.let(onBrowseSource)
                             },
                             onTrust = { vm.trust(info) },
                             onUntrust = { vm.untrust(info) },
                         )
                     }
-                }
 
-                else -> LazyColumn(
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp),
-                ) {
-                    items(catalogue, key = { it.repoUrl + "/" + it.pkgId }) { item ->
-                        CatalogueExtensionRow(item = item, onInstall = { vm.installFromCatalogue(item) })
+                    stickyHeader(key = "h-available") {
+                        SectionHeader("Available (${available.size})")
+                    }
+                    if (available.isEmpty()) {
+                        item(key = "available-empty") {
+                            SectionNote("Nothing available. Check your extension stores, or clear the language filter.")
+                        }
+                    }
+                    items(available, key = { "a/" + it.repoUrl + "/" + it.pkgId }) { item ->
+                        RepoExtensionRow(
+                            item = item,
+                            actionLabel = "Install",
+                            onAction = { vm.installFromCatalogue(item) },
+                        )
                     }
                 }
             }
@@ -174,6 +211,38 @@ fun ExtensionsScreen(
     }
 }
 
+/** Opaque background so list rows don't bleed through while the header is pinned. */
+@Composable
+private fun SectionHeader(title: String, action: String? = null, onAction: (() -> Unit)? = null) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .background(MaterialTheme.colorScheme.surface)
+            .padding(start = 16.dp, end = 8.dp, top = 12.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.weight(1f),
+        )
+        if (action != null && onAction != null) {
+            TextButton(onClick = onAction) { Text(action) }
+        }
+    }
+}
+
+@Composable
+private fun SectionNote(message: String) {
+    Text(
+        message,
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
 @Composable
 private fun EmptyExtensions(message: String) {
     Box(Modifier.fillMaxSize(), Alignment.Center) {
@@ -182,6 +251,35 @@ private fun EmptyExtensions(message: String) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             modifier = Modifier.padding(32.dp),
+        )
+    }
+}
+
+/**
+ * Extension icon: the installed package's launcher icon when the package is on
+ * device, otherwise the repo index icon, otherwise a generic glyph.
+ */
+@Composable
+internal fun ExtensionIcon(pkgId: String, iconUrl: String?, size: Int = 40) {
+    val context = LocalContext.current
+    val packageIcon = remember(pkgId) {
+        runCatching { context.packageManager.getApplicationIcon(pkgId) }.getOrNull()
+    }
+    val model: Any? = packageIcon ?: iconUrl
+    val modifier = Modifier.size(size.dp).clip(RoundedCornerShape(8.dp))
+    if (model == null) {
+        Icon(
+            Icons.Filled.Extension,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+            modifier = modifier,
+        )
+    } else {
+        AsyncImage(
+            model = model,
+            contentDescription = null,
+            contentScale = ContentScale.Fit,
+            modifier = modifier,
         )
     }
 }
@@ -218,7 +316,9 @@ private fun LanguageFilterDialog(
 @Composable
 private fun InstalledExtensionRow(
     info: ExtensionInfo,
-    onBrowse: () -> Unit,
+    iconUrl: String?,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
     onTrust: () -> Unit,
     onUntrust: () -> Unit,
 ) {
@@ -227,13 +327,12 @@ private fun InstalledExtensionRow(
     Row(
         Modifier
             .fillMaxWidth()
-            .combinedClickable(
-                onClick = onBrowse,
-                onLongClick = { if (info.trusted) showUntrust = true },
-            )
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        ExtensionIcon(info.pkgId, iconUrl)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Text(
                 info.name,
@@ -242,24 +341,26 @@ private fun InstalledExtensionRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                buildString {
-                    append("${info.ecosystem.label} · ${info.lang} · v${info.versionName}")
-                    if (!info.trusted) append(" · not trusted")
-                },
+                "${info.ecosystem.label} · ${info.lang} · v${info.versionName}",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (info.trusted) {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
             )
+            if (!info.trusted) {
+                Text(
+                    "Not trusted — its sources stay hidden until you trust it",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
         }
         if (info.trusted) {
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = "Trusted",
-                tint = MaterialTheme.colorScheme.primary,
-            )
+            IconButton(onClick = { showUntrust = true }) {
+                Icon(
+                    Icons.Filled.Check,
+                    contentDescription = "Trusted — tap to remove trust",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
         } else {
             TextButton(onClick = onTrust) { Text("Trust") }
         }
@@ -284,14 +385,17 @@ private fun InstalledExtensionRow(
 }
 
 @Composable
-private fun CatalogueExtensionRow(
-    item: com.opennovel.reader.extension.RepoExtension,
-    onInstall: () -> Unit,
+private fun RepoExtensionRow(
+    item: RepoExtension,
+    actionLabel: String,
+    onAction: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        ExtensionIcon(item.pkgId, item.iconUrl)
+        Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -311,8 +415,11 @@ private fun CatalogueExtensionRow(
             }
             Text(
                 buildString {
-                    append("${item.ecosystem.label} · ${item.lang} · v${item.version}")
-                    if (item.hasUpdate) append(" → update available")
+                    append("${item.ecosystem.label} · ${item.lang} · ")
+                    // On an update the jump matters more than the target version alone.
+                    if (item.hasUpdate) append("v${item.installedVersion} → v${item.version}")
+                    else append("v${item.version}")
+                    if (item.ecosystem != Ecosystem.LNREADER) append(" · APK")
                 },
                 style = MaterialTheme.typography.bodySmall,
                 color = if (item.hasUpdate) {
@@ -322,56 +429,6 @@ private fun CatalogueExtensionRow(
                 },
             )
         }
-        when {
-            item.hasUpdate -> IconButton(onClick = onInstall) {
-                Icon(Icons.Filled.Upgrade, contentDescription = "Update ${item.name}")
-            }
-            item.installed -> Icon(
-                Icons.Filled.Check,
-                contentDescription = "Installed",
-                tint = MaterialTheme.colorScheme.primary,
-            )
-            else -> IconButton(onClick = onInstall) {
-                Icon(Icons.Filled.Download, contentDescription = "Install ${item.name}")
-            }
-        }
-    }
-}
-
-@Composable
-private fun ExtensionRow(
-    info: ExtensionInfo,
-    showInstall: Boolean,
-    onInstall: () -> Unit,
-) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(
-                info.name,
-                style = MaterialTheme.typography.titleSmall,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                "${info.ecosystem.label} · ${info.lang} · v${info.versionName}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-            )
-        }
-        when {
-            showInstall -> IconButton(onClick = onInstall) {
-                Icon(Icons.Filled.Download, contentDescription = "Install ${info.name}")
-            }
-            info.installed -> Icon(
-                Icons.Filled.Check,
-                contentDescription = "Installed",
-                tint = MaterialTheme.colorScheme.primary,
-            )
-        }
+        TextButton(onClick = onAction) { Text(actionLabel) }
     }
 }

@@ -24,6 +24,20 @@ data class MigrationCandidate(
     val chapterCount: Int = -1,
 )
 
+/**
+ * What a migration carries across, and whether the original survives it.
+ *
+ * Defaults reproduce the previous behaviour (carry everything, retire the old
+ * entry) so callers that don't care keep working unchanged.
+ */
+data class MigrationOptions(
+    val chaptersRead: Boolean = true,
+    val categories: Boolean = true,
+    val bookmarks: Boolean = true,
+    /** Move takes the original out of the library; copy leaves both shelved. */
+    val removeOriginal: Boolean = true,
+)
+
 /** Everything needed to preview one entry's migration options. */
 data class MigrationSearch(
     val novel: NovelEntity,
@@ -120,10 +134,15 @@ class MigrationManager(
      * migrating. Chapters without a usable number fall back to a normalised name
      * match. Anything unmatched is simply left unread rather than guessed at.
      *
-     * The old entry is removed from the library but kept in the database, so a
-     * mistaken migration can still be recovered from history.
+     * On a move the old entry is removed from the library but kept in the
+     * database, so a mistaken migration can still be recovered from history; on a
+     * copy it stays shelved alongside the new one.
      */
-    suspend fun migrate(novel: NovelEntity, candidate: MigrationCandidate): Result<Long> =
+    suspend fun migrate(
+        novel: NovelEntity,
+        candidate: MigrationCandidate,
+        options: MigrationOptions = MigrationOptions(),
+    ): Result<Long> =
         withContext(Dispatchers.IO) {
             runCatching {
                 val newId = repo.cacheNovel(candidate.sourceId, candidate.novel)
@@ -138,34 +157,42 @@ class MigrationManager(
                     .associateBy { floor(it.number.toDouble()).toInt() }
                 val newByName = newChapters.associateBy { TitleMatcher.normalize(it.name) }
 
-                var carried = 0
                 oldChapters.forEach { old ->
-                    if (!old.read && old.lastReadOffset <= 0f) return@forEach
                     val match = when {
                         old.number >= 0f -> newByNumber[floor(old.number.toDouble()).toInt()]
                         else -> newByName[TitleMatcher.normalize(old.name)]
                     } ?: return@forEach
-                    chapterDao.setReadState(match.id, old.read, old.lastReadOffset)
-                    carried++
-                }
-
-                // Re-point "continue reading" at the equivalent chapter.
-                val oldResume = novel.lastReadChapterId?.let { id -> oldChapters.firstOrNull { it.id == id } }
-                val newResume = oldResume?.let { old ->
-                    if (old.number >= 0f) {
-                        newByNumber[floor(old.number.toDouble()).toInt()]
-                    } else {
-                        newByName[TitleMatcher.normalize(old.name)]
+                    if (options.chaptersRead && (old.read || old.lastReadOffset > 0f)) {
+                        chapterDao.setReadState(match.id, old.read, old.lastReadOffset)
+                    }
+                    if (options.bookmarks && old.bookmark) {
+                        chapterDao.setBookmark(match.id, true)
                     }
                 }
-                newResume?.let { novelDao.setLastReadChapter(newId, it.id) }
 
-                // Keep shelf placement so the entry doesn't vanish from its category.
-                val categories = repo.categoryIdsForNovel(novel.id).toSet()
-                if (categories.isNotEmpty()) repo.setNovelCategories(newId, categories)
+                if (options.chaptersRead) {
+                    // Re-point "continue reading" at the equivalent chapter.
+                    val oldResume = novel.lastReadChapterId?.let { id -> oldChapters.firstOrNull { it.id == id } }
+                    val newResume = oldResume?.let { old ->
+                        if (old.number >= 0f) {
+                            newByNumber[floor(old.number.toDouble()).toInt()]
+                        } else {
+                            newByName[TitleMatcher.normalize(old.name)]
+                        }
+                    }
+                    newResume?.let { novelDao.setLastReadChapter(newId, it.id) }
+                }
 
-                repo.addToLibrary(novel.id, false)
-                repo.removeHistory(novel.id)
+                if (options.categories) {
+                    // Keep shelf placement so the entry doesn't vanish from its category.
+                    val categories = repo.categoryIdsForNovel(novel.id).toSet()
+                    if (categories.isNotEmpty()) repo.setNovelCategories(newId, categories)
+                }
+
+                if (options.removeOriginal) {
+                    repo.addToLibrary(novel.id, false)
+                    repo.removeHistory(novel.id)
+                }
 
                 newId
             }

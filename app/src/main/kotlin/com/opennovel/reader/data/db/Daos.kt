@@ -39,6 +39,9 @@ interface NovelDao {
 
     @Query("UPDATE novels SET lastReadChapterId = :chapterId WHERE id = :novelId")
     suspend fun setLastReadChapter(novelId: Long, chapterId: Long)
+
+    @Query("UPDATE novels SET contentType = :type WHERE id = :novelId")
+    suspend fun setContentType(novelId: Long, type: String)
 }
 
 @Dao
@@ -69,28 +72,111 @@ interface ChapterDao {
     suspend fun setDownloadState(id: Long, downloaded: Boolean, path: String?)
 
     /**
-     * Recent chapters across the whole library, newest first — the Updates feed.
-     * Restricted to library novels so browsing doesn't pollute it.
+     * The Updates feed: chapters that arrived *after* the entry joined the
+     * library, newest first.
+     *
+     * `dateFetch > n.dateAdded` is what makes this a feed of updates rather than
+     * a dump of the library. Adding a 900-chapter series would otherwise push 900
+     * rows into Updates as though they were all new, burying anything that
+     * genuinely just released.
+     *
+     * Ordered by dateFetch, not dateUpload, because a large share of sources
+     * report no upload date at all; ordering by it puts those at the epoch.
      */
     @Query(
         """
         SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
-               c.read AS read, c.downloaded AS downloaded, c.dateUpload AS dateUpload,
+               c.read AS read, c.bookmark AS bookmark, c.downloaded AS downloaded,
+               c.dateUpload AS dateUpload, c.dateFetch AS dateFetch,
                n.title AS novelTitle, n.coverUrl AS coverUrl
         FROM chapters c
         JOIN novels n ON n.id = c.novelId
-        WHERE n.inLibrary = 1
-        ORDER BY c.dateUpload DESC, c.id DESC
-        LIMIT 300
+        WHERE n.inLibrary = 1 AND c.dateFetch > n.dateAdded
+        ORDER BY c.dateFetch DESC, c.id DESC
+        LIMIT 500
         """,
     )
     fun observeRecentChapters(): Flow<List<ChapterWithNovel>>
+
+    /** How many entries currently have at least one unseen update. */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT c.novelId) FROM chapters c
+        JOIN novels n ON n.id = c.novelId
+        WHERE n.inLibrary = 1 AND c.dateFetch > n.dateAdded AND c.read = 0
+        """,
+    )
+    fun observeUpdatedEntryCount(): Flow<Int>
+
+    /**
+     * Rows inserted by a refresh, stamped with the moment we first saw them.
+     * Returns the new row ids; IGNORE yields -1 for chapters we already had, so
+     * the caller can tell a genuine update from a no-op re-fetch.
+     */
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
+    suspend fun insertAllReturningIds(chapters: List<ChapterEntity>): List<Long>
+
+    @Query("UPDATE chapters SET bookmark = :bookmark WHERE id = :id")
+    suspend fun setBookmark(id: Long, bookmark: Boolean)
+
+    @Query("UPDATE chapters SET read = :read, lastReadOffset = :offset WHERE id IN (:ids)")
+    suspend fun setReadStateFor(ids: List<Long>, read: Boolean, offset: Float)
+
+    @Query("UPDATE chapters SET bookmark = :bookmark WHERE id IN (:ids)")
+    suspend fun setBookmarkFor(ids: List<Long>, bookmark: Boolean)
+
+    @Query("SELECT * FROM chapters WHERE id IN (:ids)")
+    suspend fun getByIds(ids: List<Long>): List<ChapterEntity>
+
+    /**
+     * Exact tallies over the whole library, for Statistics. Counted in SQL
+     * because the feed queries are capped and scoped — deriving these from them
+     * would silently under-report once a library outgrew the cap.
+     */
+    @Query(
+        """
+        SELECT COUNT(*) FROM chapters c JOIN novels n ON n.id = c.novelId
+        WHERE n.inLibrary = 1 AND c.bookmark = 1
+        """,
+    )
+    fun observeBookmarkedCount(): Flow<Int>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM chapters c JOIN novels n ON n.id = c.novelId
+        WHERE n.inLibrary = 1 AND c.downloaded = 1
+        """,
+    )
+    fun observeDownloadedCount(): Flow<Int>
+
+    /**
+     * Release timestamps for library entries, newest first, used to estimate
+     * each entry's publishing cadence.
+     *
+     * Falls back to dateFetch when the source publishes no upload date, since
+     * for a regularly-checked library the two track each other closely enough to
+     * estimate an interval — and a source with no dates at all would otherwise
+     * be excluded from the schedule entirely.
+     */
+    @Query(
+        """
+        SELECT c.novelId AS novelId,
+               (CASE WHEN c.dateUpload > 0 THEN c.dateUpload ELSE c.dateFetch END) AS releasedAt
+        FROM chapters c
+        JOIN novels n ON n.id = c.novelId
+        WHERE n.inLibrary = 1
+          AND (c.dateUpload > 0 OR c.dateFetch > 0)
+        ORDER BY c.novelId ASC, releasedAt DESC
+        """,
+    )
+    fun observeReleaseTimes(): Flow<List<ChapterRelease>>
 
     /** Chapters already downloaded, for the download manager. */
     @Query(
         """
         SELECT c.id AS chapterId, c.novelId AS novelId, c.name AS name, c.url AS url,
-               c.read AS read, c.downloaded AS downloaded, c.dateUpload AS dateUpload,
+               c.read AS read, c.bookmark AS bookmark, c.downloaded AS downloaded,
+               c.dateUpload AS dateUpload, c.dateFetch AS dateFetch,
                n.title AS novelTitle, n.coverUrl AS coverUrl
         FROM chapters c
         JOIN novels n ON n.id = c.novelId

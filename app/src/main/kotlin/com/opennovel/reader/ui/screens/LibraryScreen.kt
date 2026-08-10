@@ -23,7 +23,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SelectAll
@@ -45,12 +48,22 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -64,6 +77,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.opennovel.reader.data.db.ContentType
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.opennovel.reader.data.LibraryDisplayMode
@@ -97,7 +111,19 @@ fun LibraryScreen(
     val counts by vm.counts.collectAsStateWithLifecycle()
     val settings by vm.settings.collectAsStateWithLifecycle()
     val filters by vm.filters.collectAsStateWithLifecycle()
+    val chapterCount by vm.visibleChapterCount.collectAsStateWithLifecycle()
+    val categoryCounts by vm.categoryCounts.collectAsStateWithLifecycle()
+    val contentFilter by vm.contentFilter.collectAsStateWithLifecycle()
+    val hasMixed by vm.hasMixedContent.collectAsStateWithLifecycle()
+    val refreshing by vm.refreshing.collectAsStateWithLifecycle()
+    val message by vm.message.collectAsStateWithLifecycle()
     val inSelectionMode = selection.isNotEmpty()
+
+    val snackbars = remember { SnackbarHostState() }
+    LaunchedEffect(message) {
+        message?.let { snackbars.showSnackbar(it); vm.consumeMessage() }
+    }
+    var showOverflow by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
         if (inSelectionMode) {
@@ -126,7 +152,18 @@ fun LibraryScreen(
             )
         } else {
             TopAppBar(
-                title = { Text(if (novels.isEmpty()) "Library" else "Library (${novels.size})") },
+                title = {
+                    Column {
+                        Text("Library")
+                        if (novels.isNotEmpty()) {
+                            Text(
+                                "${novels.size} entries · $chapterCount chapters",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            )
+                        }
+                    }
+                },
                 actions = {
                     IconButton(onClick = { showFilterSheet = true }) {
                         Icon(
@@ -141,24 +178,75 @@ fun LibraryScreen(
                             },
                         )
                     }
-                    LibraryOverflowMenu(onEditCategories = { showEditCategories = true })
+                    LibraryOverflowMenu(
+                        onEditCategories = { showEditCategories = true },
+                        onUpdateLibrary = vm::refreshAll,
+                        onUpdateCategory = vm::refreshVisible,
+                        onOpenRandom = { vm.randomEntry { id -> id?.let(onOpenNovel) } },
+                    )
                 },
             )
         }
 
+        // Comics / novels narrowing, shown only when the library actually holds
+        // both. One shelf with a filter rather than two separate sections: the
+        // two kinds differ only in which reader opens them, and everything
+        // around them — categories, updates, history, search — is shared.
+        if (hasMixed) {
+            SingleChoiceSegmentedButtonRow(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                val segments = listOf(
+                    ContentType.UNKNOWN to "All",
+                    ContentType.COMIC to "Comics",
+                    ContentType.NOVEL to "Novels",
+                )
+                segments.forEachIndexed { index, (type, label) ->
+                    SegmentedButton(
+                        selected = contentFilter == type,
+                        onClick = { vm.setContentFilter(type) },
+                        shape = SegmentedButtonDefaults.itemShape(index, segments.size),
+                    ) { Text(label) }
+                }
+            }
+        }
+
         // Category tabs (Mihon-style) — only when the user has created categories.
+        val tabs = remember(categories) {
+            listOf(CategoryEntity(DEFAULT_CATEGORY_ID, "Default")) + categories
+        }
+        val selectedIndex = tabs.indexOfFirst { it.id == selectedCategory }.coerceAtLeast(0)
+
         if (categories.isNotEmpty()) {
-            val tabs = listOf(CategoryEntity(DEFAULT_CATEGORY_ID, "Default")) + categories
-            val selectedIndex = tabs.indexOfFirst { it.id == selectedCategory }.coerceAtLeast(0)
             ScrollableTabRow(selectedTabIndex = selectedIndex, edgePadding = 12.dp) {
                 tabs.forEachIndexed { index, category ->
                     Tab(
                         selected = index == selectedIndex,
                         onClick = { vm.selectCategory(category.id) },
-                        text = { Text(category.name) },
+                        // The count lives in the tab label so switching shelves
+                        // shows how much is on each without opening it.
+                        text = { Text("${category.name} (${categoryCounts[category.id] ?: 0})") },
                     )
                 }
             }
+        }
+
+        // Swiping sideways moves between shelves. This pager sits inside the
+        // one driving the bottom tabs; the inner one consumes the gesture until
+        // it runs out of shelves, at which point the outer takes over and the
+        // swipe continues on to Updates — so both gestures coexist rather than
+        // fighting.
+        val categoryPager = rememberPagerState(
+            initialPage = selectedIndex,
+            pageCount = { tabs.size },
+        )
+        LaunchedEffect(selectedIndex) {
+            if (categoryPager.currentPage != selectedIndex) {
+                categoryPager.animateScrollToPage(selectedIndex)
+            }
+        }
+        LaunchedEffect(categoryPager.currentPage) {
+            tabs.getOrNull(categoryPager.currentPage)?.let { vm.selectCategory(it.id) }
         }
 
         OutlinedTextField(
@@ -171,7 +259,23 @@ fun LibraryScreen(
                 .padding(horizontal = 12.dp),
         )
 
-        when {
+        // Pull down to check the current shelf for new chapters.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = vm::refreshVisible,
+            modifier = Modifier.weight(1f),
+        ) {
+        HorizontalPager(
+            state = categoryPager,
+            modifier = Modifier.fillMaxSize(),
+            key = { tabs.getOrNull(it)?.id ?: it.toLong() },
+        ) { page ->
+        // Only the settled shelf renders content. The grid is driven by a
+        // single filtered flow, so a neighbouring page would otherwise draw the
+        // current shelf's entries under the wrong tab mid-swipe.
+        if (page != categoryPager.currentPage) {
+            Box(Modifier.fillMaxSize())
+        } else when {
             novels.isEmpty() && query.isNotBlank() -> NoResults(query)
             novels.isEmpty() -> EmptyLibrary()
             else -> {
@@ -201,6 +305,7 @@ fun LibraryScreen(
                                 novel = novel,
                                 unread = badge?.unread ?: 0,
                                 downloaded = badge?.downloaded ?: 0,
+                                total = badge?.total ?: 0,
                                 showBadges = settings.showLibraryBadges,
                                 selected = novel.id in selection,
                                 onClick = onTap,
@@ -212,6 +317,7 @@ fun LibraryScreen(
                                 selected = novel.id in selection,
                                 unread = badge?.unread ?: 0,
                                 downloaded = badge?.downloaded ?: 0,
+                                total = badge?.total ?: 0,
                                 showBadges = settings.showLibraryBadges,
                                 // Long-press starts selection; once in selection
                                 // mode a tap toggles rather than opening.
@@ -223,7 +329,13 @@ fun LibraryScreen(
                 }
             }
         }
+        }
+        }
     }
+
+    // Hosted below the content so refresh results and batch-action feedback
+    // surface without displacing the grid.
+    SnackbarHost(snackbars)
 
     if (showFilterSheet) {
         LibraryFilterSheet(
@@ -367,12 +479,33 @@ private fun FilterRow(label: String, state: FilterState, onClick: () -> Unit) {
 }
 
 @Composable
-private fun LibraryOverflowMenu(onEditCategories: () -> Unit) {
+private fun LibraryOverflowMenu(
+    onEditCategories: () -> Unit,
+    onUpdateLibrary: () -> Unit,
+    onUpdateCategory: () -> Unit,
+    onOpenRandom: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     IconButton(onClick = { expanded = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(
+            text = { Text("Update library") },
+            leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+            onClick = { onUpdateLibrary(); expanded = false },
+        )
+        DropdownMenuItem(
+            text = { Text("Update this category") },
+            leadingIcon = { Icon(Icons.Filled.Sync, contentDescription = null) },
+            onClick = { onUpdateCategory(); expanded = false },
+        )
+        DropdownMenuItem(
+            text = { Text("Open random entry") },
+            leadingIcon = { Icon(Icons.Filled.Casino, contentDescription = null) },
+            onClick = { onOpenRandom(); expanded = false },
+        )
+        HorizontalDivider()
         DropdownMenuItem(
             text = { Text("Edit categories") },
             leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },
@@ -505,6 +638,7 @@ private fun NovelCover(
     selected: Boolean = false,
     unread: Int = 0,
     downloaded: Int = 0,
+    total: Int = 0,
     showBadges: Boolean = true,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
@@ -547,11 +681,12 @@ private fun NovelCover(
                     }
                 }
             }
-            if (showBadges && (unread > 0 || downloaded > 0)) {
+            if (showBadges && (unread > 0 || downloaded > 0 || total > 0)) {
                 LibraryBadges(
                     unread = unread,
                     downloaded = downloaded,
-                    modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
+                    total = total,
+                    modifier = Modifier.align(Alignment.TopEnd).padding(4.dp),
                 )
             }
             if (selected) {
@@ -559,7 +694,7 @@ private fun NovelCover(
                     Icons.Filled.CheckCircle,
                     contentDescription = "Selected",
                     tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.align(Alignment.TopEnd).padding(6.dp),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(6.dp),
                 )
             }
         }
@@ -578,8 +713,23 @@ private fun NovelCover(
  * rely on to see what's worth opening without entering each entry.
  */
 @Composable
-private fun LibraryBadges(unread: Int, downloaded: Int, modifier: Modifier = Modifier) {
+private fun LibraryBadges(
+    unread: Int,
+    downloaded: Int,
+    total: Int = 0,
+    modifier: Modifier = Modifier,
+) {
     Row(modifier.clip(RoundedCornerShape(4.dp))) {
+        if (total > 0) {
+            Text(
+                total.toString(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .padding(horizontal = 5.dp, vertical = 2.dp),
+            )
+        }
         if (unread > 0) {
             Text(
                 unread.toString(),
@@ -610,6 +760,7 @@ private fun NovelListRow(
     novel: NovelEntity,
     unread: Int,
     downloaded: Int,
+    total: Int,
     showBadges: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -654,7 +805,7 @@ private fun NovelListRow(
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f).padding(horizontal = 12.dp),
         )
-        if (showBadges) LibraryBadges(unread = unread, downloaded = downloaded)
+        if (showBadges) LibraryBadges(unread = unread, downloaded = downloaded, total = total)
     }
 }
 

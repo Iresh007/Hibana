@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.floatPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -48,7 +49,70 @@ data class ReaderSettings(
     val libraryDisplayMode: LibraryDisplayMode = LibraryDisplayMode.COMFORTABLE_GRID,
     /** Show unread / downloaded counts on covers. */
     val showLibraryBadges: Boolean = true,
+
+    // --- appearance ---
+    /**
+     * Material You. Off by default so the Hibana brand palette survives on
+     * Android 12+; [com.opennovel.reader.ui.theme.OpenNovelTheme] defaults the
+     * same way.
+     */
+    val dynamicColor: Boolean = false,
+    /** BCP-47 tag, or empty to follow the system locale. */
+    val appLanguage: String = "",
+
+    // --- library ---
+    /**
+     * Category new entries land in. [NO_DEFAULT_CATEGORY] means "ask each time",
+     * which is distinct from the uncategorised Default shelf (id 0).
+     */
+    val defaultCategoryId: Long = NO_DEFAULT_CATEGORY,
+    val showUnreadBadge: Boolean = true,
+    val showDownloadedBadge: Boolean = true,
+    val showLanguageBadge: Boolean = false,
+
+    // --- comic reader ---
+    val comicPageLayout: PageLayout = PageLayout.SINGLE,
+    val comicFullscreen: Boolean = true,
+
+    // --- downloads ---
+    /** Display-only path of the download root; empty means app-private storage. */
+    val downloadLocation: String = "",
+    val downloadNewChapters: Boolean = false,
+    val removeAfterRead: Boolean = false,
+    val concurrentDownloads: Int = 2,
+
+    // --- browse ---
+    val includeNsfwSources: Boolean = true,
+    val autoUpdateExtensions: Boolean = true,
+
+    // --- data & storage ---
+    val autoBackupFrequency: AutoBackupFrequency = AutoBackupFrequency.OFF,
+
+    // --- privacy ---
+    val appLockEnabled: Boolean = false,
+    /** Sets FLAG_SECURE, which blocks screenshots and the recents thumbnail. */
+    val secureScreen: Boolean = false,
+    /** Suppresses history and progress writes while reading. */
+    val incognitoMode: Boolean = false,
 )
+
+/** Sentinel for "no default category — ask when adding". */
+const val NO_DEFAULT_CATEGORY = -1L
+
+/** How many pages a comic reader shows at once. */
+enum class PageLayout(val label: String) {
+    SINGLE("Single page"),
+    DOUBLE("Double page"),
+    /** Double pages, except the first — keeps covers on their own. */
+    DOUBLE_EXCEPT_COVER("Double page (cover alone)"),
+}
+
+enum class AutoBackupFrequency(val label: String) {
+    OFF("Off"),
+    DAILY("Daily"),
+    EVERY_2_DAYS("Every 2 days"),
+    WEEKLY("Weekly"),
+}
 
 /** Library layout, mirroring the options Mihon offers. */
 enum class LibraryDisplayMode(val label: String) {
@@ -132,12 +196,40 @@ class SettingsRepository(private val context: Context) {
             updateOnWifiOnly = p[UPDATE_WIFI_ONLY] ?: true,
             libraryDisplayMode = enumOr(p[LIBRARY_DISPLAY], LibraryDisplayMode.COMFORTABLE_GRID),
             showLibraryBadges = p[LIBRARY_BADGES] ?: true,
+            dynamicColor = p[DYNAMIC_COLOR] ?: false,
+            appLanguage = p[APP_LANGUAGE] ?: "",
+            defaultCategoryId = p[DEFAULT_CATEGORY] ?: NO_DEFAULT_CATEGORY,
+            showUnreadBadge = p[BADGE_UNREAD] ?: true,
+            showDownloadedBadge = p[BADGE_DOWNLOADED] ?: true,
+            showLanguageBadge = p[BADGE_LANGUAGE] ?: false,
+            comicPageLayout = enumOr(p[COMIC_PAGE_LAYOUT], PageLayout.SINGLE),
+            comicFullscreen = p[COMIC_FULLSCREEN] ?: true,
+            downloadLocation = p[DOWNLOAD_LOCATION] ?: "",
+            downloadNewChapters = p[DOWNLOAD_NEW_CHAPTERS] ?: false,
+            removeAfterRead = p[REMOVE_AFTER_READ] ?: false,
+            concurrentDownloads = p[CONCURRENT_DOWNLOADS] ?: 2,
+            includeNsfwSources = p[INCLUDE_NSFW] ?: true,
+            autoUpdateExtensions = p[AUTO_UPDATE_EXTENSIONS] ?: true,
+            autoBackupFrequency = enumOr(p[AUTO_BACKUP], AutoBackupFrequency.OFF),
+            appLockEnabled = p[APP_LOCK] ?: false,
+            secureScreen = p[SECURE_SCREEN] ?: false,
+            incognitoMode = p[INCOGNITO] ?: false,
         )
     }
 
     /** Tolerates stored values from older builds instead of crashing on rename. */
     private inline fun <reified T : Enum<T>> enumOr(value: String?, fallback: T): T =
         value?.let { runCatching { enumValueOf<T>(it) }.getOrNull() } ?: fallback
+
+    /**
+     * When the library was last swept for new chapters. Kept out of
+     * [ReaderSettings] deliberately: it changes on every refresh, and folding it
+     * into that object would re-emit the whole settings flow — and so recompose
+     * every screen observing any preference — each time a sweep finishes.
+     */
+    val lastLibraryRefresh: Flow<Long> = context.dataStore.data.map { it[LAST_REFRESH] ?: 0L }
+
+    suspend fun setLastLibraryRefresh(millis: Long) = edit { it[LAST_REFRESH] = millis }
 
     suspend fun setFontScale(v: Float) = edit { it[FONT_SCALE] = v }
     suspend fun setLineSpacing(v: Float) = edit { it[LINE_SPACING] = v }
@@ -162,6 +254,32 @@ class SettingsRepository(private val context: Context) {
     suspend fun setUpdateOnWifiOnly(v: Boolean) = edit { it[UPDATE_WIFI_ONLY] = v }
     suspend fun setLibraryDisplayMode(v: LibraryDisplayMode) = edit { it[LIBRARY_DISPLAY] = v.name }
     suspend fun setShowLibraryBadges(v: Boolean) = edit { it[LIBRARY_BADGES] = v }
+    suspend fun setDynamicColor(v: Boolean) = edit { it[DYNAMIC_COLOR] = v }
+    suspend fun setAppLanguage(v: String) = edit { it[APP_LANGUAGE] = v }
+    suspend fun setDefaultCategoryId(v: Long) = edit { it[DEFAULT_CATEGORY] = v }
+    suspend fun setShowUnreadBadge(v: Boolean) = edit { it[BADGE_UNREAD] = v }
+    suspend fun setShowDownloadedBadge(v: Boolean) = edit { it[BADGE_DOWNLOADED] = v }
+    suspend fun setShowLanguageBadge(v: Boolean) = edit { it[BADGE_LANGUAGE] = v }
+    suspend fun setComicPageLayout(v: PageLayout) = edit { it[COMIC_PAGE_LAYOUT] = v.name }
+    suspend fun setComicFullscreen(v: Boolean) = edit { it[COMIC_FULLSCREEN] = v }
+    suspend fun setDownloadLocation(v: String) = edit { it[DOWNLOAD_LOCATION] = v }
+    suspend fun setDownloadNewChapters(v: Boolean) = edit { it[DOWNLOAD_NEW_CHAPTERS] = v }
+    suspend fun setRemoveAfterRead(v: Boolean) = edit { it[REMOVE_AFTER_READ] = v }
+    // Above ~5 parallel fetches most sources start rate-limiting or banning.
+    suspend fun setConcurrentDownloads(v: Int) = edit { it[CONCURRENT_DOWNLOADS] = v.coerceIn(1, 5) }
+    suspend fun setIncludeNsfwSources(v: Boolean) = edit { it[INCLUDE_NSFW] = v }
+    suspend fun setAutoUpdateExtensions(v: Boolean) = edit { it[AUTO_UPDATE_EXTENSIONS] = v }
+    suspend fun setAutoBackupFrequency(v: AutoBackupFrequency) = edit { it[AUTO_BACKUP] = v.name }
+    suspend fun setAppLockEnabled(v: Boolean) = edit { it[APP_LOCK] = v }
+    suspend fun setSecureScreen(v: Boolean) = edit { it[SECURE_SCREEN] = v }
+    suspend fun setIncognitoMode(v: Boolean) = edit { it[INCOGNITO] = v }
+
+    /**
+     * Wipes every stored preference so the next read falls back to the defaults
+     * in [ReaderSettings]. [LAST_REFRESH] goes with it; it is derived state that
+     * the next library sweep rewrites anyway.
+     */
+    suspend fun resetAll() = edit { it.clear() }
 
     private suspend fun edit(block: (androidx.datastore.preferences.core.MutablePreferences) -> Unit) {
         context.dataStore.edit(block)
@@ -189,7 +307,24 @@ class SettingsRepository(private val context: Context) {
         val UPDATE_WIFI_ONLY = booleanPreferencesKey("update_wifi_only")
         val LIBRARY_DISPLAY = stringPreferencesKey("library_display_mode")
         val LIBRARY_BADGES = booleanPreferencesKey("library_badges")
-
-        @Suppress("unused") val UNUSED_INT = intPreferencesKey("reserved")
+        val LAST_REFRESH = longPreferencesKey("last_library_refresh")
+        val DYNAMIC_COLOR = booleanPreferencesKey("dynamic_color")
+        val APP_LANGUAGE = stringPreferencesKey("app_language")
+        val DEFAULT_CATEGORY = longPreferencesKey("default_category_id")
+        val BADGE_UNREAD = booleanPreferencesKey("badge_unread")
+        val BADGE_DOWNLOADED = booleanPreferencesKey("badge_downloaded")
+        val BADGE_LANGUAGE = booleanPreferencesKey("badge_language")
+        val COMIC_PAGE_LAYOUT = stringPreferencesKey("comic_page_layout")
+        val COMIC_FULLSCREEN = booleanPreferencesKey("comic_fullscreen")
+        val DOWNLOAD_LOCATION = stringPreferencesKey("download_location")
+        val DOWNLOAD_NEW_CHAPTERS = booleanPreferencesKey("download_new_chapters")
+        val REMOVE_AFTER_READ = booleanPreferencesKey("remove_after_read")
+        val CONCURRENT_DOWNLOADS = intPreferencesKey("concurrent_downloads")
+        val INCLUDE_NSFW = booleanPreferencesKey("include_nsfw_sources")
+        val AUTO_UPDATE_EXTENSIONS = booleanPreferencesKey("auto_update_extensions")
+        val AUTO_BACKUP = stringPreferencesKey("auto_backup_frequency")
+        val APP_LOCK = booleanPreferencesKey("app_lock")
+        val SECURE_SCREEN = booleanPreferencesKey("secure_screen")
+        val INCOGNITO = booleanPreferencesKey("incognito_mode")
     }
 }

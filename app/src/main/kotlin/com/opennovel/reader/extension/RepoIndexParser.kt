@@ -4,6 +4,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonObject
@@ -54,12 +55,14 @@ fun compareVersions(a: String, b: String): Int {
 /**
  * Reads extension repository indexes.
  *
- * Two shapes exist in the wild and both must work, since the app supports both
- * ecosystems from one repo list:
- *  - **Mihon/Tachiyomi** `index.min.json`: `{name, pkg, apk, lang, version, nsfw, sources[]}`
- *  - **LNReader** `plugins.min.json`: `{id, name, site, lang, version, url, iconUrl}`
+ * Three shapes exist in the wild and all must work, since the app supports
+ * several ecosystems from one repo list:
+ *  - **Repo manifest** (current Keiyoushi): an object with `extensionList.extensions[]`,
+ *    each carrying absolute `resources.apkUrl` / `resources.iconUrl`.
+ *  - **Legacy Tachiyomi** `index.min.json`: an array of `{name, pkg, apk, lang, version, nsfw}`.
+ *  - **LNReader** `plugins.min.json`: an array of `{id, name, site, lang, version, url, iconUrl}`.
  *
- * They're told apart by which keys are present rather than by URL, so a mirror or
+ * They're told apart by their structure rather than by URL, so a mirror or
  * self-hosted copy still parses correctly.
  */
 class RepoIndexParser(private val client: OkHttpClient) {
@@ -71,10 +74,28 @@ class RepoIndexParser(private val client: OkHttpClient) {
             client.newCall(Request.Builder().url(repo.url).build()).execute()
                 .use { if (it.isSuccessful) it.body?.string().orEmpty() else "" }
         }.getOrDefault("")
-        if (body.isBlank()) return@withContext emptyList()
+        parse(body, repo)
+    }
 
-        runCatching {
-            val array = json.parseToJsonElement(body) as? JsonArray ?: return@runCatching emptyList()
+    /**
+     * Split from [fetch] so index formats can be covered by JVM unit tests. A
+     * repo silently changing shape breaks installs for every user at once, and
+     * that is not something to find out from a bug report.
+     */
+    fun parse(body: String, repo: ExtensionRepo): List<RepoExtension> {
+        if (body.isBlank()) return emptyList()
+
+        return runCatching {
+            val root = json.parseToJsonElement(body)
+
+            // A manifest object rather than a bare array means the newer repo
+            // format. Repos that have migrated leave the old index.min.json in
+            // place holding only "Outdated App" placeholders, whose APKs are
+            // deliberately absent — parsing that as a catalogue is why installs
+            // came back 404 for extensions that were perfectly fine.
+            (root as? JsonObject)?.let { return@runCatching parseManifest(it, repo) }
+
+            val array = root as? JsonArray ?: return@runCatching emptyList()
             array.mapNotNull { element ->
                 val o = element.jsonObject
                 fun str(key: String) = o[key]?.jsonPrimitive?.contentOrNull
@@ -88,8 +109,7 @@ class RepoIndexParser(private val client: OkHttpClient) {
                         lang = str("lang") ?: "all",
                         version = str("version") ?: "?",
                         ecosystem = Ecosystem.MIHON,
-                        // APK paths are relative to the index file's directory.
-                        artifact = str("apk")?.let { apk -> resolve(repo.url, apk) }.orEmpty(),
+                        artifact = str("apk")?.let { apk -> resolveApk(repo.url, apk) }.orEmpty(),
                         iconUrl = str("pkg")?.let { p ->
                             resolve(repo.url, "icon/$p.png")
                         },
@@ -113,7 +133,65 @@ class RepoIndexParser(private val client: OkHttpClient) {
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * Parses the repo-manifest format, where every entry already carries
+     * absolute artifact URLs so nothing has to be resolved against the index.
+     *
+     * An entry can declare several sources; its language is reported as the
+     * single language when they agree and "all" when they don't, which is how
+     * the multi-language bundles describe themselves.
+     */
+    private fun parseManifest(root: JsonObject, repo: ExtensionRepo): List<RepoExtension> {
+        val extensions = root["extensionList"]?.jsonObject
+            ?.get("extensions") as? JsonArray
+            ?: return emptyList()
+
+        return extensions.mapNotNull { element ->
+            val o = element.jsonObject
+            fun str(key: String) = o[key]?.jsonPrimitive?.contentOrNull
+
+            val pkg = str("packageName") ?: return@mapNotNull null
+            val resources = o["resources"]?.jsonObject
+            val apkUrl = resources?.get("apkUrl")?.jsonPrimitive?.contentOrNull
+                ?: return@mapNotNull null
+
+            val languages = (o["sources"] as? JsonArray)
+                ?.mapNotNull { it.jsonObject["language"]?.jsonPrimitive?.contentOrNull }
+                ?.distinct()
+                .orEmpty()
+
+            RepoExtension(
+                pkgId = pkg,
+                name = str("name") ?: pkg,
+                lang = languages.singleOrNull() ?: "all",
+                version = str("versionName") ?: "?",
+                ecosystem = Ecosystem.MIHON,
+                artifact = apkUrl,
+                iconUrl = resources["iconUrl"]?.jsonPrimitive?.contentOrNull,
+                // Mixed repos flag per entry; treat anything not explicitly safe
+                // as adult so the NSFW filter errs toward hiding.
+                nsfw = str("contentWarning")?.let { it != "CONTENT_WARNING_SAFE" } ?: false,
+                repoUrl = repo.url,
+            )
+        }
+    }
+
     /** Resolves a repo-relative path against the index URL's directory. */
     private fun resolve(indexUrl: String, path: String): String =
         if (path.startsWith("http")) path else indexUrl.substringBeforeLast('/') + "/" + path.trimStart('/')
+
+    /**
+     * Resolves the APK download URL for a Tachiyomi-style index entry.
+     *
+     * The `apk` field carries a bare filename, but repos serve builds from an
+     * `apk/` directory beside the index — resolving it as a plain relative path
+     * drops that segment and every install 404s even though the extension is
+     * fine. Entries that already spell out a path or a full URL are left alone,
+     * so mirrors that lay their files out differently still work.
+     */
+    private fun resolveApk(indexUrl: String, apk: String): String = when {
+        apk.startsWith("http") -> apk
+        apk.contains('/') -> resolve(indexUrl, apk)
+        else -> resolve(indexUrl, "apk/$apk")
+    }
 }
