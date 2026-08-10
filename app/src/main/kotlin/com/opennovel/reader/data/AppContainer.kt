@@ -45,6 +45,13 @@ class AppContainer(context: Context) {
         incognito = { settingsRepository.settings.first().incognitoMode },
     )
 
+    /** Reads Manatan's own backup format, which is not Tachiyomi's. */
+    val manatanImporter = com.opennovel.reader.backup.ManatanBackupImporter(
+        novelDao = database.novelDao(),
+        chapterDao = database.chapterDao(),
+        categoryDao = database.categoryDao(),
+    )
+
     val backupManager = com.opennovel.reader.backup.BackupManager(
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),

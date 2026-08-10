@@ -54,7 +54,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(SettingsViewModel::class.java) ->
             SettingsViewModel(c.settingsRepository, c.appContext, c.translationManager)
         modelClass.isAssignableFrom(BackupViewModel::class.java) ->
-            BackupViewModel(c.backupManager)
+            BackupViewModel(c.backupManager, c.manatanImporter)
         modelClass.isAssignableFrom(StatsViewModel::class.java) ->
             StatsViewModel(c.libraryRepository, c.sourceManager)
         modelClass.isAssignableFrom(UpcomingViewModel::class.java) ->
@@ -1095,7 +1095,10 @@ class SourceBrowseViewModel(
     }
 }
 
-class BackupViewModel(private val backup: com.opennovel.reader.backup.BackupManager) : ViewModel() {
+class BackupViewModel(
+    private val backup: com.opennovel.reader.backup.BackupManager,
+    private val manatan: com.opennovel.reader.backup.ManatanBackupImporter,
+) : ViewModel() {
     private val _status = MutableStateFlow<String?>(null)
     val status: StateFlow<String?> = _status.asStateFlow()
 
@@ -1112,17 +1115,14 @@ class BackupViewModel(private val backup: com.opennovel.reader.backup.BackupMana
     }
 
     fun importFrom(input: java.io.InputStream, isManatan: Boolean) {
-        if (isManatan) {
-            _status.value = "Manatan backups aren't supported yet — use a Mihon/Tachiyomi .tachibk file."
-            return
-        }
         _busy.value = true
         viewModelScope.launch {
-            _status.value = runCatching { backup.import(input) }
-                .fold(
-                    { "Restored ${it.novels} novels, ${it.chapters} chapters, ${it.categories} categories" },
-                    { "Restore failed: ${it.message}" },
-                )
+            _status.value = runCatching {
+                if (isManatan) manatan.import(input) else backup.import(input)
+            }.fold(
+                { "Restored ${it.novels} novels, ${it.chapters} chapters, ${it.categories} categories" },
+                { "Restore failed: ${it.message}" },
+            )
             _busy.value = false
         }
     }
