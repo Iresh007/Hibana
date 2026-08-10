@@ -23,7 +23,10 @@ import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Casino
 import androidx.compose.material.icons.filled.FilterList
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Sync
 import androidx.compose.material.icons.automirrored.filled.Label
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.SelectAll
@@ -45,7 +48,13 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.ScrollableTabRow
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -54,6 +63,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -105,7 +115,15 @@ fun LibraryScreen(
     val categoryCounts by vm.categoryCounts.collectAsStateWithLifecycle()
     val contentFilter by vm.contentFilter.collectAsStateWithLifecycle()
     val hasMixed by vm.hasMixedContent.collectAsStateWithLifecycle()
+    val refreshing by vm.refreshing.collectAsStateWithLifecycle()
+    val message by vm.message.collectAsStateWithLifecycle()
     val inSelectionMode = selection.isNotEmpty()
+
+    val snackbars = remember { SnackbarHostState() }
+    LaunchedEffect(message) {
+        message?.let { snackbars.showSnackbar(it); vm.consumeMessage() }
+    }
+    var showOverflow by remember { mutableStateOf(false) }
 
     Column(Modifier.fillMaxSize()) {
         if (inSelectionMode) {
@@ -160,7 +178,12 @@ fun LibraryScreen(
                             },
                         )
                     }
-                    LibraryOverflowMenu(onEditCategories = { showEditCategories = true })
+                    LibraryOverflowMenu(
+                        onEditCategories = { showEditCategories = true },
+                        onUpdateLibrary = vm::refreshAll,
+                        onUpdateCategory = vm::refreshVisible,
+                        onOpenRandom = { vm.randomEntry { id -> id?.let(onOpenNovel) } },
+                    )
                 },
             )
         }
@@ -189,9 +212,12 @@ fun LibraryScreen(
         }
 
         // Category tabs (Mihon-style) — only when the user has created categories.
+        val tabs = remember(categories) {
+            listOf(CategoryEntity(DEFAULT_CATEGORY_ID, "Default")) + categories
+        }
+        val selectedIndex = tabs.indexOfFirst { it.id == selectedCategory }.coerceAtLeast(0)
+
         if (categories.isNotEmpty()) {
-            val tabs = listOf(CategoryEntity(DEFAULT_CATEGORY_ID, "Default")) + categories
-            val selectedIndex = tabs.indexOfFirst { it.id == selectedCategory }.coerceAtLeast(0)
             ScrollableTabRow(selectedTabIndex = selectedIndex, edgePadding = 12.dp) {
                 tabs.forEachIndexed { index, category ->
                     Tab(
@@ -205,6 +231,24 @@ fun LibraryScreen(
             }
         }
 
+        // Swiping sideways moves between shelves. This pager sits inside the
+        // one driving the bottom tabs; the inner one consumes the gesture until
+        // it runs out of shelves, at which point the outer takes over and the
+        // swipe continues on to Updates — so both gestures coexist rather than
+        // fighting.
+        val categoryPager = rememberPagerState(
+            initialPage = selectedIndex,
+            pageCount = { tabs.size },
+        )
+        LaunchedEffect(selectedIndex) {
+            if (categoryPager.currentPage != selectedIndex) {
+                categoryPager.animateScrollToPage(selectedIndex)
+            }
+        }
+        LaunchedEffect(categoryPager.currentPage) {
+            tabs.getOrNull(categoryPager.currentPage)?.let { vm.selectCategory(it.id) }
+        }
+
         OutlinedTextField(
             value = query,
             onValueChange = vm::setQuery,
@@ -215,7 +259,23 @@ fun LibraryScreen(
                 .padding(horizontal = 12.dp),
         )
 
-        when {
+        // Pull down to check the current shelf for new chapters.
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = vm::refreshVisible,
+            modifier = Modifier.weight(1f),
+        ) {
+        HorizontalPager(
+            state = categoryPager,
+            modifier = Modifier.fillMaxSize(),
+            key = { tabs.getOrNull(it)?.id ?: it.toLong() },
+        ) { page ->
+        // Only the settled shelf renders content. The grid is driven by a
+        // single filtered flow, so a neighbouring page would otherwise draw the
+        // current shelf's entries under the wrong tab mid-swipe.
+        if (page != categoryPager.currentPage) {
+            Box(Modifier.fillMaxSize())
+        } else when {
             novels.isEmpty() && query.isNotBlank() -> NoResults(query)
             novels.isEmpty() -> EmptyLibrary()
             else -> {
@@ -269,7 +329,13 @@ fun LibraryScreen(
                 }
             }
         }
+        }
+        }
     }
+
+    // Hosted below the content so refresh results and batch-action feedback
+    // surface without displacing the grid.
+    SnackbarHost(snackbars)
 
     if (showFilterSheet) {
         LibraryFilterSheet(
@@ -413,12 +479,33 @@ private fun FilterRow(label: String, state: FilterState, onClick: () -> Unit) {
 }
 
 @Composable
-private fun LibraryOverflowMenu(onEditCategories: () -> Unit) {
+private fun LibraryOverflowMenu(
+    onEditCategories: () -> Unit,
+    onUpdateLibrary: () -> Unit,
+    onUpdateCategory: () -> Unit,
+    onOpenRandom: () -> Unit,
+) {
     var expanded by remember { mutableStateOf(false) }
     IconButton(onClick = { expanded = true }) {
         Icon(Icons.Filled.MoreVert, contentDescription = "More")
     }
     DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+        DropdownMenuItem(
+            text = { Text("Update library") },
+            leadingIcon = { Icon(Icons.Filled.Refresh, contentDescription = null) },
+            onClick = { onUpdateLibrary(); expanded = false },
+        )
+        DropdownMenuItem(
+            text = { Text("Update this category") },
+            leadingIcon = { Icon(Icons.Filled.Sync, contentDescription = null) },
+            onClick = { onUpdateCategory(); expanded = false },
+        )
+        DropdownMenuItem(
+            text = { Text("Open random entry") },
+            leadingIcon = { Icon(Icons.Filled.Casino, contentDescription = null) },
+            onClick = { onOpenRandom(); expanded = false },
+        )
+        HorizontalDivider()
         DropdownMenuItem(
             text = { Text("Edit categories") },
             leadingIcon = { Icon(Icons.AutoMirrored.Filled.Label, contentDescription = null) },

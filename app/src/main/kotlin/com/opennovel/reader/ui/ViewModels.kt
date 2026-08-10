@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.opennovel.reader.data.AppContainer
 import com.opennovel.reader.data.LibraryRepository
 import com.opennovel.reader.data.ReaderSettings
+import com.opennovel.reader.data.RefreshOutcome
 import com.opennovel.reader.data.SettingsRepository
 import com.opennovel.reader.data.ThemeMode
 import com.opennovel.reader.data.db.CategoryEntity
@@ -282,6 +283,56 @@ class LibraryViewModel(
     fun setSort(value: LibrarySort) { _sort.value = value }
 
     fun selectCategory(id: Long) { _selectedCategory.value = id }
+
+    private val _refreshing = MutableStateFlow(false)
+    val refreshing: StateFlow<Boolean> = _refreshing.asStateFlow()
+
+    private val _message = MutableStateFlow<String?>(null)
+    val message: StateFlow<String?> = _message.asStateFlow()
+
+    fun consumeMessage() { _message.value = null }
+
+    /** Checks every library entry for new chapters. */
+    fun refreshAll() = launchRefresh { repo.refreshLibrary().summary() }
+
+    /**
+     * Checks only what is on screen — the entries in the current category, after
+     * filters. Refreshing a shelf of twenty is a different proposition from
+     * sweeping a library of two thousand, and pull-to-refresh on a category tab
+     * reads as a request for the former.
+     */
+    fun refreshVisible() = launchRefresh {
+        val ids = library.value.map { it.id }
+        if (ids.isEmpty()) return@launchRefresh "Nothing here to refresh"
+        var new = 0
+        var problems = 0
+        ids.forEach { id ->
+            val outcome = runCatching { repo.refreshChapters(id) }.getOrNull()
+            when {
+                outcome == null || outcome == RefreshOutcome.NO_SOURCE -> problems++
+                else -> new += outcome.newChapters
+            }
+        }
+        buildString {
+            append(if (new > 0) "$new new chapter${if (new == 1) "" else "s"}" else "No new chapters")
+            if (problems > 0) append(" · $problems could not be checked")
+        }
+    }
+
+    private fun launchRefresh(block: suspend () -> String) {
+        if (_refreshing.value) return
+        _refreshing.value = true
+        viewModelScope.launch {
+            _message.value = runCatching { block() }
+                .getOrElse { "Refresh failed: ${it.message}" }
+            _refreshing.value = false
+        }
+    }
+
+    /** Picks something to read at random from what is currently on screen. */
+    fun randomEntry(onPicked: (Long?) -> Unit) {
+        onPicked(library.value.randomOrNull()?.id)
+    }
 
     // --- multi-select (batch migration) ---
 
