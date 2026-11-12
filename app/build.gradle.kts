@@ -8,6 +8,13 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Firebase config. google-services.json is not committed (it is gitignored); put
+// the file from the Firebase console at app/google-services.json, or let CI write
+// it from the GOOGLE_SERVICES_JSON secret. Without it the build still works.
+if (file("google-services.json").exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 /**
  * Release signing credentials.
  *

@@ -39,6 +39,12 @@ jobs:
       - name: Generate Gradle wrapper
         run: gradle wrapper --gradle-version 8.14.5
 
+      - name: Write google-services.json (optional)
+        env:
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then printf '%s' "$GOOGLE_SERVICES_JSON" > app/google-services.json; fi
+
       # The release build ships ARM only; the cloud emulator is x86_64, so this
       # run adds that ABI (-PincludeX86=true) to keep ML Kit's native libs loadable.
       - name: Build debug APK

@@ -28,3 +28,6 @@
 
 # Local git worktrees used for feature work
 /.worktrees/
+
+# Firebase client config (restrict the API key in Google Cloud if you ever commit it)
+/app/google-services.json
