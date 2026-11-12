@@ -145,6 +145,13 @@ private fun AppearanceSection(factory: ViewModelProvider.Factory) {
     }
 
     PrefSection("Colour") {
+        ChipRow(
+            options = com.opennovel.reader.data.AppTheme.entries,
+            selected = s.appTheme,
+            label = { it.label },
+            onSelect = extra::setAppTheme,
+        )
+        Hint("Accent palette. Sepia and Black keep their own reading colours.")
         SwitchRow(
             title = "Dynamic colour",
             subtitle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
