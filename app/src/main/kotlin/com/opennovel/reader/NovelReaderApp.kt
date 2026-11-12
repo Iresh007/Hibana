@@ -8,6 +8,8 @@ import com.opennovel.reader.data.AppContainer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 
 /**
@@ -32,6 +34,15 @@ class NovelReaderApp : Application() {
             runCatching {
                 com.opennovel.reader.update.UpdateScheduler.apply(this@NovelReaderApp, container.settingsRepository)
             }
+        }
+        // Keep the automatic-backup schedule in step with the setting, including at launch.
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+            container.settingsRepository.settings
+                .map { it.autoBackupFrequency }
+                .distinctUntilChanged()
+                .collect { f ->
+                    runCatching { com.opennovel.reader.update.AutoBackupWorker.apply(this@NovelReaderApp, f) }
+                }
         }
     }
 
