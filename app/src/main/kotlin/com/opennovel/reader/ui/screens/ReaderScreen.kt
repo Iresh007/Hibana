@@ -13,6 +13,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -162,6 +163,7 @@ fun ReaderScreen(
     val prevId by vm.prevChapterId.collectAsStateWithLifecycle()
     val nextId by vm.nextChapterId.collectAsStateWithLifecycle()
     LaunchedEffect(activeId) { vm.load(activeId) }
+    ReaderWindowEffects(settings)
 
     // Auto-scroll to the paragraph TTS is currently speaking (text mode only;
     // in manga mode the indices refer to OCR lines, not pages).
@@ -244,7 +246,10 @@ fun ReaderScreen(
             if (pagedManga) {
                 val last = (pageUrls.size - 1).coerceAtLeast(0)
                 val target = (pagerState.currentPage + if (forward) 1 else -1).coerceIn(0, last)
-                if (target != pagerState.currentPage) pagerState.animateScrollToPage(target)
+                if (target != pagerState.currentPage) {
+                    if (settings.pageTransitions) pagerState.animateScrollToPage(target)
+                    else pagerState.scrollToPage(target)
+                }
             } else {
                 // Continuous strips have no pages; a screenful less an overlap is
                 // the equivalent step, and the overlap keeps a line of context.
@@ -316,6 +321,7 @@ fun ReaderScreen(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .readerTint(settings)
                 .focusRequester(keyFocus)
                 .onKeyEvent { event ->
                     if (!settings.volumeKeyPaging || !isManga || event.type != KeyEventType.KeyDown) {
@@ -369,6 +375,9 @@ fun ReaderScreen(
                         listState = listState,
                         pagerState = pagerState,
                         doubleTapZoom = settings.doubleTapZoom,
+                        contentScale = settings.imageScaleType.toContentScale(),
+                        colorFilter = pageColorFilter(settings),
+                        sidePaddingPct = settings.webtoonSidePadding,
                     )
                 }
 
@@ -391,6 +400,22 @@ fun ReaderScreen(
                         )
                     }
                 }
+            }
+
+            if (isManga && settings.showPageNumber && pageUrls.isNotEmpty()) {
+                Text(
+                    text = "${(position + 1).coerceIn(1, pageUrls.size)} / ${pageUrls.size}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = androidx.compose.ui.graphics.Color.White,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 8.dp)
+                        .background(
+                            androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.55f),
+                            androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 2.dp),
+                )
             }
 
             if (showSettings) {
@@ -733,6 +758,9 @@ private fun MangaPages(
     listState: androidx.compose.foundation.lazy.LazyListState,
     pagerState: PagerState,
     doubleTapZoom: Boolean = true,
+    contentScale: ContentScale = ContentScale.Fit,
+    colorFilter: androidx.compose.ui.graphics.ColorFilter? = null,
+    sidePaddingPct: Int = 0,
 ) {
     when (mode) {
         ReadingMode.WEBTOON, ReadingMode.CONTINUOUS_VERTICAL -> {
@@ -743,11 +771,15 @@ private fun MangaPages(
                 verticalArrangement = Arrangement.spacedBy(gap),
             ) {
                 itemsIndexed(pageUrls) { index, url ->
+                    val screenWidthDp = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp
                     AsyncImage(
                         model = url,
                         contentDescription = "Page ${index + 1}",
                         contentScale = ContentScale.FillWidth,
-                        modifier = Modifier.fillMaxWidth(),
+                        colorFilter = colorFilter,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = (screenWidthDp * sidePaddingPct.coerceIn(0, 25) / 100f).dp),
                     )
                 }
             }
@@ -761,14 +793,14 @@ private fun MangaPages(
                     if (mode == ReadingMode.PAGED_RTL) LayoutDirection.Rtl else LayoutDirection.Ltr,
             ) {
                 HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                    PagedImage(pageUrls[page], page, doubleTapZoom)
+                    PagedImage(pageUrls[page], page, doubleTapZoom, contentScale, colorFilter)
                 }
             }
         }
 
         ReadingMode.PAGED_VERTICAL -> {
             VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                PagedImage(pageUrls[page], page, doubleTapZoom)
+                PagedImage(pageUrls[page], page, doubleTapZoom, contentScale, colorFilter)
             }
         }
     }
@@ -780,7 +812,13 @@ private fun MangaPages(
  * swipes still reach the pager and turn the page.
  */
 @Composable
-private fun PagedImage(url: String, index: Int, doubleTapZoom: Boolean = true) {
+private fun PagedImage(
+    url: String,
+    index: Int,
+    doubleTapZoom: Boolean = true,
+    contentScale: ContentScale = ContentScale.Fit,
+    colorFilter: androidx.compose.ui.graphics.ColorFilter? = null,
+) {
     var scale by remember(url) { mutableStateOf(1f) }
     var offset by remember(url) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
@@ -831,7 +869,8 @@ private fun PagedImage(url: String, index: Int, doubleTapZoom: Boolean = true) {
         AsyncImage(
             model = url,
             contentDescription = "Page ${index + 1}",
-            contentScale = ContentScale.Fit,
+            contentScale = contentScale,
+            colorFilter = colorFilter,
             modifier = Modifier.fillMaxSize(),
         )
     }
