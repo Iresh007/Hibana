@@ -3,6 +3,7 @@ package com.opennovel.reader.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
@@ -111,8 +112,16 @@ fun OpenNovelTheme(
     MaterialTheme(
         colorScheme = colorScheme,
         typography = Typography(),
-        content = content,
-    )
+    ) {
+        // Root surface: gives every Text/Icon outside a Scaffold the right content
+        // colour (otherwise it falls back to black on the dark background).
+        androidx.compose.material3.Surface(
+            modifier = androidx.compose.ui.Modifier.fillMaxSize(),
+            color = colorScheme.background,
+            contentColor = colorScheme.onBackground,
+            content = content,
+        )
+    }
 }
 
 /** Accent triple (primary, secondary, tertiary) for a named app theme. */

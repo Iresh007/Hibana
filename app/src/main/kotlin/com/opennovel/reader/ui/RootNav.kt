@@ -16,7 +16,12 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -128,7 +133,9 @@ private fun HomeTabs(factory: ViewModelProvider.Factory, nav: NavHostController)
     ) { padding ->
         HorizontalPager(
             state = pager,
-            modifier = Modifier.padding(padding),
+            // The switcher already sits below the status bar; consume it so each
+            // tab's own top bar doesn't add a second gap.
+            modifier = Modifier.padding(padding).consumeWindowInsets(WindowInsets.statusBars),
             // Neighbours stay alive so swiping back to a tab keeps its scroll
             // position and doesn't re-run its loaders.
             beyondViewportPageCount = 1,
@@ -190,13 +197,19 @@ private fun SectionSwitcher(factory: ViewModelProvider.Factory) {
 
     Surface(tonalElevation = 2.dp) {
         SingleChoiceSegmentedButtonRow(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            Modifier.statusBarsPadding().fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
         ) {
             AppSection.entries.forEachIndexed { index, section ->
                 SegmentedButton(
                     selected = active == section,
                     onClick = { vm.select(section) },
                     shape = SegmentedButtonDefaults.itemShape(index, AppSection.entries.size),
+                    colors = SegmentedButtonDefaults.colors(
+                        activeContainerColor = MaterialTheme.colorScheme.primary,
+                        activeContentColor = MaterialTheme.colorScheme.onPrimary,
+                        inactiveContainerColor = MaterialTheme.colorScheme.surface,
+                        inactiveContentColor = MaterialTheme.colorScheme.onSurface,
+                    ),
                 ) { Text(section.label) }
             }
         }
