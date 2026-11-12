@@ -54,7 +54,8 @@ class LNReaderPluginLoader(
         runCatching {
             (json.parseToJsonElement(body) as JsonArray).mapNotNull { entry ->
                 val o = entry.jsonObject
-                val id = o["id"]?.jsonPrimitive?.content ?: return@mapNotNull null
+                val id = o["id"]?.jsonPrimitive?.content?.takeIf { isSafePluginId(it) }
+                    ?: return@mapNotNull null
                 ExtensionInfo(
                     pkgId = id,
                     name = o["name"]?.jsonPrimitive?.content ?: id,
@@ -85,7 +86,7 @@ class LNReaderPluginLoader(
 
     /** Downloads a plugin's JS to app storage so it can be loaded offline. */
     suspend fun install(info: ExtensionInfo): Boolean = withContext(Dispatchers.IO) {
-        if (info.artifact.isBlank()) return@withContext false
+        if (info.artifact.isBlank() || !isSafePluginId(info.pkgId)) return@withContext false
         runCatching {
             client.newCall(Request.Builder().url(info.artifact).build()).execute().use { resp ->
                 val src = resp.body?.string().orEmpty()
@@ -97,8 +98,13 @@ class LNReaderPluginLoader(
     }
 
     override suspend fun load(info: ExtensionInfo): List<Source> = withContext(Dispatchers.IO) {
-        val file = if (info.artifact.endsWith(".js") && File(info.artifact).exists()) {
-            File(info.artifact)
+        if (!isSafePluginId(info.pkgId)) return@withContext emptyList()
+        // Only ever read from the plugin directory: `artifact` can come from a remote index.
+        val candidate = File(info.artifact)
+        val file = if (info.artifact.endsWith(".js") && candidate.exists() &&
+            candidate.canonicalFile.parentFile == pluginDir.canonicalFile
+        ) {
+            candidate
         } else {
             pluginFile(info.pkgId)
         }
@@ -109,9 +115,22 @@ class LNReaderPluginLoader(
         listOf(LNReaderSource(plugin, runtime, info))
     }
 
-    private fun pluginFile(id: String) = File(pluginDir, "$id.js")
+    private fun pluginFile(id: String): File {
+        require(isSafePluginId(id)) { "Unsafe plugin id" }
+        return File(pluginDir, "$id.js")
+    }
 
     companion object {
+        private val SAFE_ID = Regex("[A-Za-z0-9._-]+")
+
+        /**
+         * Plugin ids come from a remote index and become file names, so only a
+         * conservative character set is allowed and `..` is rejected outright
+         * (path traversal).
+         */
+        fun isSafePluginId(id: String): Boolean =
+            id.isNotEmpty() && id.length <= 128 && SAFE_ID.matches(id) && !id.contains("..")
+
         /** Official plugin repository manifest. */
         const val DEFAULT_REPO =
             "https://raw.githubusercontent.com/lnreader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json"

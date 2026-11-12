@@ -143,6 +143,9 @@ dependencies {
 
     // LNReader JS plugin engine.
     implementation(libs.rhino)
+    // Mihon/Tachiyomi extension runtime (the eu.kanade.tachiyomi.* source-api copy needs both).
+    implementation(libs.injekt.core)
+    implementation(libs.rxjava)
 
     // On-device OCR: lets TTS read manga pages (images) aloud.
     implementation(libs.mlkit.text.latin)

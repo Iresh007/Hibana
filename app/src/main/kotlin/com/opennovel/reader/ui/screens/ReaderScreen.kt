@@ -61,6 +61,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -165,10 +166,37 @@ fun ReaderScreen(
     val paragraphCount = content?.paragraphs?.size ?: 0
     // Paged modes move the pager, not the list, so the list index would sit at 0
     // for a whole chapter and record no progress at all.
-    val position = if (pagedManga) pagerState.currentPage else listState.firstVisibleItemIndex
-    LaunchedEffect(position, isManga, paragraphCount, pageUrls.size) {
+    //
+    // Progress counts the last item on screen, not the first. With the first, a
+    // short chapter (where the end is visible from the start) could never reach
+    // the read threshold and was never marked read.
+    val lastVisible by remember {
+        derivedStateOf {
+            listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index
+                ?: listState.firstVisibleItemIndex
+        }
+    }
+    val position = if (pagedManga) pagerState.currentPage else lastVisible
+    val resumeOffset by vm.resumeOffset.collectAsStateWithLifecycle()
+    var resumed by remember(chapterId) { mutableStateOf(false) }
+
+    // Scroll back to where the user left off, once the content has arrived.
+    LaunchedEffect(chapterId, paragraphCount, pageUrls.size, resumeOffset) {
         val total = if (isManga) pageUrls.size else paragraphCount
-        if (total > 0) vm.saveProgress(position.toFloat() / total)
+        if (resumed || total == 0) return@LaunchedEffect
+        resumed = true
+        val target = (resumeOffset * total).toInt() - 1
+        if (target > 0) {
+            if (pagedManga) pagerState.scrollToPage(target.coerceIn(0, total - 1))
+            else listState.scrollToItem(target.coerceIn(0, total - 1))
+        }
+    }
+
+    LaunchedEffect(position, isManga, paragraphCount, pageUrls.size, resumed) {
+        val total = if (isManga) pageUrls.size else paragraphCount
+        // Do not record progress before the resume jump, or the first frame
+        // (position 0) would overwrite the saved position.
+        if (total > 0 && resumed) vm.saveProgress((position + 1f) / total)
     }
 
     // Honours the preference here rather than on the window flag, so leaving the

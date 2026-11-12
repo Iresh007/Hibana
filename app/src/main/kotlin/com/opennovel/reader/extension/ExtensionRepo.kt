@@ -54,6 +54,9 @@ class ExtensionRepoStore(private val context: Context) {
     suspend fun setEnabled(url: String, enabled: Boolean) =
         save(current().map { if (it.url == url) it.copy(enabled = enabled) else it })
 
+    /** Opt-in preload of the Keiyoushi store (Mihon 0.21 index.pb format). Returns false if already present. */
+    suspend fun addKeiyoushiDefault(): Boolean = add(KEIYOUSHI_INDEX_PB)
+
     suspend fun resetToDefaults() =
         context.repoStore.edit { it[REPOS] = defaultRepos() }
 
@@ -71,8 +74,11 @@ class ExtensionRepoStore(private val context: Context) {
         return ExtensionRepo(url, parts.getOrNull(1)?.toBooleanStrictOrNull() ?: true)
     }
 
-    private companion object {
-        val REPOS = stringSetPreferencesKey("repos")
+    companion object {
+        /** Keiyoushi's protobuf store index (gzip or raw). Also served at github.com/keiyoushi/extensions/raw/repo/index.pb. */
+        const val KEIYOUSHI_INDEX_PB = "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.pb"
+
+        private val REPOS = stringSetPreferencesKey("repos")
 
         /**
          * Ships with the well-known community repositories pre-filled.
@@ -82,7 +88,7 @@ class ExtensionRepoStore(private val context: Context) {
          * App" placeholders whose APKs are intentionally missing, so pointing at
          * it yields a catalogue of two dead entries and a 404 on install.
          */
-        fun defaultRepos(): Set<String> = setOf(
+        private fun defaultRepos(): Set<String> = setOf(
             "https://raw.githubusercontent.com/keiyoushi/extensions/repo/index.json|true",
             "https://raw.githubusercontent.com/lnreader/lnreader-plugins/plugins/v3.0.0/.dist/plugins.min.json|true",
         )

@@ -14,7 +14,7 @@ composeBom = "2024.12.01"
 navigationCompose = "2.8.5"
 room = "2.7.1"
 datastore = "1.1.1"
-okhttp = "4.12.0"
+okhttp = "5.1.0"
 jsoup = "1.18.1"
 serialization = "1.9.0"
 coroutines = "1.9.0"
@@ -26,6 +26,9 @@ ksoup = "0.2.6"
 kotlinxDatetime = "0.7.1"
 rhino = "1.7.15"
 work = "2.10.0"
+# Versions pinned by Mihon v0.21.3 (gradle/libs.versions.toml); extensions link against both.
+injekt = "1.16.1"
+rxjava = "1.3.8"
 
 [libraries]
 androidx-preference = { group = "androidx.preference", name = "preference-ktx", version.ref = "preference" }
@@ -69,6 +72,10 @@ kotlinx-datetime = { group = "org.jetbrains.kotlinx", name = "kotlinx-datetime",
 # Rhino runs LNReader's JS plugins. They compile to ES5, so a pure-JVM engine
 # works and avoids QuickJS's NDK/ABI-split cost. Must run interpreted on Android.
 rhino = { group = "org.mozilla", name = "rhino", version.ref = "rhino" }
+# Real Injekt + RxJava 1, as the Tachiyomi/Mihon extensions-lib requires: extensions link against
+# uy.kohesive.injekt.* and rx.* at runtime (verified from their dex references).
+injekt-core = { group = "uy.kohesive.injekt", name = "injekt-core", version.ref = "injekt" }
+rxjava = { group = "io.reactivex", name = "rxjava", version.ref = "rxjava" }
 
 # On-device OCR so text-to-speech can read *manga* pages, which are images.
 # Script-specific models are separate artifacts; CJK matters for this app.

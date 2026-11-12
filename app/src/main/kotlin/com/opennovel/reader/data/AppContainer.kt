@@ -55,6 +55,12 @@ class AppContainer(context: Context) {
         categoryDao = database.categoryDao(),
         sourceManager = sourceManager,
         incognito = { settingsRepository.settings.first().incognitoMode },
+        onNewChapters = { ids ->
+            if (settingsRepository.settings.first().downloadNewChapters) downloader.enqueue(ids)
+        },
+        onChapterFinished = { id ->
+            if (settingsRepository.settings.first().removeAfterRead) downloader.delete(id)
+        },
     )
 
     /** Reads Manatan's own backup format, which is not Tachiyomi's. */
@@ -62,12 +68,14 @@ class AppContainer(context: Context) {
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
         categoryDao = database.categoryDao(),
+        historyDao = database.historyDao(),
     )
 
     val backupManager = com.opennovel.reader.backup.BackupManager(
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
         categoryDao = database.categoryDao(),
+        historyDao = database.historyDao(),
         sourceManager = sourceManager,
     )
 
@@ -84,6 +92,7 @@ class AppContainer(context: Context) {
         novelDao = database.novelDao(),
         chapterDao = database.chapterDao(),
         sourceManager = sourceManager,
+        concurrency = { settingsRepository.settings.first().concurrentDownloads },
     )
 
     val ttsManager = TtsManager(context)
@@ -104,7 +113,7 @@ class AppContainer(context: Context) {
     val extensionLoaders: List<ExtensionLoader> = listOf(
         IReaderExtensionLoader(context, extensionTrustStore),          // native IReader novel extensions
         ApkExtensionLoader(context, Ecosystem.MIHON, extensionTrustStore),
-        ApkExtensionLoader(context, Ecosystem.MANATAN, extensionTrustStore),
+        // Manatan's APK extensions use the same tachiyomi.* keys, so the Mihon loader covers them.
         // LNReader JS plugins, run on Rhino (plugins compile to ES5).
         com.opennovel.reader.extension.lnreader.LNReaderPluginLoader(context, httpClient),
     )
@@ -113,13 +122,12 @@ class AppContainer(context: Context) {
     val extensionRepoStore = com.opennovel.reader.extension.ExtensionRepoStore(context.applicationContext)
     val repoIndexParser = com.opennovel.reader.extension.RepoIndexParser(httpClient)
 
-    val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager)
+    val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager, context.applicationContext)
 
     init {
         // Provide the host singletons that Tachiyomi/Manatan extensions resolve via
         // Injekt (NetworkHelper + app Context) before any extension is loaded.
-        uy.kohesive.injekt.Injekt.addSingleton(eu.kanade.tachiyomi.network.NetworkHelper(context.applicationContext))
-        uy.kohesive.injekt.Injekt.addSingleton(context.applicationContext)
+        com.opennovel.reader.extension.ExtensionRuntime.init(context.applicationContext)
 
         // Supply the IReader Dependencies graph so IReaderExtensionLoader can
         // construct extension sources (isAvailable() gates on this being set).

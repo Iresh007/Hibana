@@ -1,77 +1,167 @@
+// Adapted from mihonapp/mihon v0.21.3 core/common OkHttpExtensions.kt (Apache License 2.0).
+// Differences: java AtomicBoolean instead of kotlin.concurrent.atomics, and JSON decoding via
+// Json.decodeFromString (no kotlinx-serialization-json-okio dependency). JVM signatures are the same
+// as the originals, which is what already-compiled extensions link against.
 package eu.kanade.tachiyomi.network
 
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.serializer
 import okhttp3.Call
 import okhttp3.Callback
-import okhttp3.Headers
-import okhttp3.HttpUrl.Companion.toHttpUrl
-import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody
-import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
-import org.jsoup.Jsoup
-import org.jsoup.nodes.Document
+import rx.Observable
+import rx.Producer
+import rx.Subscription
+import uy.kohesive.injekt.Injekt
+import uy.kohesive.injekt.api.get
 import java.io.IOException
-import kotlin.coroutines.resume
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resumeWithException
 
-/** Cache-control marker recognised by extensions (value ignored by our stack). */
-val DEFAULT_CACHE_CONTROL: okhttp3.CacheControl = okhttp3.CacheControl.Builder().build()
+val jsonMime = "application/json; charset=utf-8".toMediaType()
 
-fun GET(url: String, headers: Headers = Headers.headersOf(), cache: okhttp3.CacheControl = DEFAULT_CACHE_CONTROL): Request =
-    Request.Builder().url(url).headers(headers).cacheControl(cache).build()
+@Deprecated("Use suspend APIs instead")
+fun Call.asObservable(): Observable<Response> {
+    return Observable.unsafeCreate { subscriber ->
+        // Since Call is a one-shot type, clone it for each new subscriber.
+        val call = clone()
 
-fun POST(
-    url: String,
-    headers: Headers = Headers.headersOf(),
-    body: RequestBody = RequestBody.create(null, ByteArray(0)),
-    cache: okhttp3.CacheControl = DEFAULT_CACHE_CONTROL,
-): Request = Request.Builder().url(url).post(body).headers(headers).cacheControl(cache).build()
+        // Wrap the call in a helper which handles both unsubscription and backpressure.
+        val requestArbiter = object : Producer, Subscription {
+            val requested = AtomicBoolean(false)
+            override fun request(n: Long) {
+                if (n == 0L || !requested.compareAndSet(false, true)) return
 
-/** Suspend bridge over OkHttp's async call, cancellation-aware. */
-suspend fun Call.await(): Response = suspendCancellableCoroutine { cont ->
-    enqueue(object : Callback {
-        override fun onResponse(call: Call, response: Response) {
-            if (!response.isSuccessful) {
-                cont.resumeWithException(IOException("HTTP error ${response.code}"))
-                return
+                try {
+                    val response = call.execute()
+                    if (!subscriber.isUnsubscribed) {
+                        subscriber.onNext(response)
+                        subscriber.onCompleted()
+                    }
+                } catch (e: Exception) {
+                    if (!subscriber.isUnsubscribed) {
+                        subscriber.onError(e)
+                    }
+                }
             }
-            cont.resume(response)
+
+            override fun unsubscribe() {
+                call.cancel()
+            }
+
+            override fun isUnsubscribed(): Boolean {
+                return call.isCanceled()
+            }
         }
 
-        override fun onFailure(call: Call, e: IOException) {
-            if (cont.isCancelled) return
-            cont.resumeWithException(e)
+        subscriber.add(requestArbiter)
+        subscriber.setProducer(requestArbiter)
+    }
+}
+
+@Deprecated("Use suspend APIs instead")
+fun Call.asObservableSuccess(): Observable<Response> {
+    @Suppress("DEPRECATION")
+    return asObservable().doOnNext { response ->
+        if (!response.isSuccessful) {
+            response.close()
+            throw HttpException(response.code)
         }
-    })
-    cont.invokeOnCancellation { runCatching { cancel() } }
+    }
+}
+
+// Based on https://github.com/square/okhttp/blob/master/okhttp-coroutines/src/main/kotlin/okhttp3/coroutines/ExecuteAsync.kt
+// and https://github.com/gildor/kotlin-coroutines-okhttp
+@OptIn(ExperimentalCoroutinesApi::class)
+private suspend fun Call.await(callStack: Array<StackTraceElement>): Response {
+    return suspendCancellableCoroutine { continuation ->
+        continuation.invokeOnCancellation {
+            try {
+                this.cancel()
+            } catch (_: Throwable) {
+                // ignore
+            }
+        }
+
+        this.enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                if (continuation.isCancelled) return
+                val exception = IOException(e.message, e).apply { stackTrace = callStack }
+                continuation.resumeWithException(exception)
+            }
+
+            override fun onResponse(call: Call, response: Response) {
+                continuation.resume(response) { _ ->
+                    response.close()
+                }
+            }
+        })
+    }
+}
+
+suspend fun Call.await(): Response {
+    val callStack = Exception().stackTrace.run { copyOfRange(1, size) }
+    return await(callStack)
 }
 
 /**
- * The form modern keiyoushi extensions actually call. Identical to [await] but
- * named to signal the non-2xx throw; omitting it makes those extensions fail to
- * resolve at class-init, so the whole source silently refuses to load.
+ * Similar to [await] but throws [HttpException] if [Response.isSuccessful] returns false
  */
 suspend fun Call.awaitSuccess(): Response {
-    val response = await()
+    val callStack = Exception().stackTrace.run { copyOfRange(1, size) }
+    val response = await(callStack)
     if (!response.isSuccessful) {
         response.close()
-        throw IOException("HTTP error ${response.code}")
+        throw HttpException(response.code).apply { stackTrace = callStack }
     }
     return response
 }
 
-fun Response.asJsoup(html: String? = null): Document =
-    Jsoup.parse(html ?: body!!.string(), request.url.toString())
+fun OkHttpClient.newCachelessCallWithProgress(
+    request: Request,
+    listener: ProgressListener,
+    existingSize: Long = 0L,
+): Call {
+    val progressClient = newBuilder()
+        .cache(null)
+        .addNetworkInterceptor { chain ->
+            val request = chain.request()
+                .newBuilder()
+                .apply {
+                    if (existingSize > 0 && request.header("Range") == null) {
+                        header("Range", "bytes=$existingSize-")
+                    }
+                }
+                .build()
 
-inline fun <reified T> Response.parseAs(): T =
-    jsonHelper.decodeFromString(body!!.string())
+            val originalResponse = chain.proceed(request)
+            val actualExistingSize = if (originalResponse.code == 206) existingSize else 0L
+            originalResponse.newBuilder()
+                .body(ProgressResponseBody(originalResponse.body!!, listener, actualExistingSize))
+                .build()
+        }
+        .build()
 
-@PublishedApi
-internal val jsonHelper: Json = Json { ignoreUnknownKeys = true; isLenient = true }
+    return progressClient.newCall(request)
+}
 
-fun String.toFormBody(): RequestBody =
-    toRequestBody("application/x-www-form-urlencoded".toMediaTypeOrNull())
+/**
+ * Decodes the response body as JSON using the host's [Json] (registered in Injekt).
+ * The older and newer extension-lib shapes both end up calling [decodeFromJsonResponse] below.
+ */
+inline fun <reified T> Response.parseAs(): T {
+    return Injekt.get<Json>().decodeFromJsonResponse(serializer(), this)
+}
+
+fun <T> Json.decodeFromJsonResponse(
+    deserializer: DeserializationStrategy<T>,
+    response: Response,
+): T {
+    return response.use { decodeFromString(deserializer, it.body!!.string()) }
+}

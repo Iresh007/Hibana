@@ -36,6 +36,10 @@ class LibraryRepository(
      * construction would keep recording after the user switched incognito on.
      */
     private val incognito: suspend () -> Boolean = { false },
+    /** Called with the ids of chapters first discovered for a library entry. */
+    private val onNewChapters: suspend (List<Long>) -> Unit = {},
+    /** Called when a chapter crosses the read threshold. */
+    private val onChapterFinished: suspend (Long) -> Unit = {},
 ) {
     fun observeLibrary(): Flow<List<NovelEntity>> = novelDao.observeLibrary()
 
@@ -245,6 +249,15 @@ class LibraryRepository(
         // IGNORE returns -1 for rows we already had, so the count of non-negative
         // ids is exactly the number of genuinely new chapters.
         val ids = chapterDao.insertAllReturningIds(entities)
+        // Rows we already had keep their read state and download, but pick up
+        // renames, renumbering and reordering from the source.
+        entities.forEachIndexed { i, e ->
+            if (ids[i] < 0) chapterDao.updateRemoteFields(novelId, e.url, e.name, e.number, e.dateUpload, e.sourceOrder)
+        }
+        if (novel.inLibrary) {
+            val newIds = ids.filter { it >= 0 }
+            if (newIds.isNotEmpty()) runCatching { onNewChapters(newIds) }
+        }
         return RefreshOutcome(newChapters = ids.count { it >= 0 })
     }
 
@@ -300,7 +313,9 @@ class LibraryRepository(
     }
 
     suspend fun saveProgress(novelId: Long, chapterId: Long, offset: Float) {
-        chapterDao.setReadState(chapterId, read = offset >= 0.98f, offset = offset)
+        val finished = offset >= 0.98f
+        chapterDao.recordProgress(chapterId, read = finished, offset = offset)
+        if (finished) runCatching { onChapterFinished(chapterId) }
         recordHistory(novelId, chapterId)
     }
 }

@@ -11,8 +11,14 @@ import androidx.preference.PreferenceGroup
 import androidx.preference.PreferenceManager
 import androidx.preference.TwoStatePreference
 import eu.kanade.tachiyomi.source.ConfigurableSource
-import eu.kanade.tachiyomi.source.sourcePreferencesKey
 import com.opennovel.reader.source.Source as HostSource
+
+/**
+ * Name of the SharedPreferences file a source's settings live in. Must equal the real
+ * extensions-lib's `ConfigurableSource.preferenceKey()` (`source_$id`), otherwise the user edits one
+ * store while the extension reads another.
+ */
+fun sourcePreferencesKey(sourceId: Long): String = "source_$sourceId"
 
 /**
  * One row of a source's settings screen, flattened out of the androidx

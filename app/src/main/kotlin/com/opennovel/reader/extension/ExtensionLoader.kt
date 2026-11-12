@@ -27,6 +27,17 @@ data class ExtensionInfo(
      * are installed deliberately by the user, so they don't need this gate.
      */
     val trusted: Boolean = true,
+    /**
+     * Why the extension is listed but not usable (unsupported extension-lib, unsigned, class
+     * failed to load...). Null when it loaded, or has not been attempted yet.
+     */
+    val loadError: String? = null,
+    /** Extension-lib version the APK was built for ("1.4" / "1.6"); null for non-Mihon ecosystems. */
+    val libVersion: String? = null,
+    /** NSFW (or mixed-content) flag from the APK / repository index. */
+    val nsfw: Boolean = false,
+    /** True for system-installed packages, false for private (in-app, `files/exts`) extensions. */
+    val isShared: Boolean = true,
 )
 
 /**
@@ -72,4 +83,10 @@ interface ExtensionLoader {
 
     /** Materialize an installed extension into runnable sources. */
     suspend fun load(info: ExtensionInfo): List<Source>
+}
+
+/** Implemented by loaders that can say why an extension failed to load, for display in the UI. */
+interface LoadErrorReporter {
+    /** Latest load failure for [pkgId], or null if it loaded (or was never attempted). */
+    fun loadErrorFor(pkgId: String): String?
 }

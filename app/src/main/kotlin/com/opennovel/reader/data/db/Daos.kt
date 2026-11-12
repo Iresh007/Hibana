@@ -81,6 +81,17 @@ interface ChapterDao {
     @Query("UPDATE chapters SET read = :read, lastReadOffset = :offset WHERE id = :id")
     suspend fun setReadState(id: Long, read: Boolean, offset: Float)
 
+    /**
+     * Reading progress that never un-reads a chapter: re-opening a finished
+     * chapter and scrolling from the top must not flip it back to unread.
+     */
+    @Query("UPDATE chapters SET read = (read OR :read), lastReadOffset = :offset WHERE id = :id")
+    suspend fun recordProgress(id: Long, read: Boolean, offset: Float)
+
+    /** Refresh source-provided metadata on a chapter we already hold. */
+    @Query("UPDATE chapters SET name = :name, number = :number, dateUpload = :dateUpload, sourceOrder = :order WHERE novelId = :novelId AND url = :url")
+    suspend fun updateRemoteFields(novelId: Long, url: String, name: String, number: Float, dateUpload: Long, order: Int)
+
     @Query("UPDATE chapters SET downloaded = :downloaded, downloadPath = :path WHERE id = :id")
     suspend fun setDownloadState(id: Long, downloaded: Boolean, path: String?)
 

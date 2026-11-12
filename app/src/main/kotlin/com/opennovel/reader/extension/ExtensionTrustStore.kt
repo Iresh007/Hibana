@@ -1,7 +1,6 @@
 package com.opennovel.reader.extension
 
 import android.content.Context
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.datastore.preferences.core.edit
@@ -10,7 +9,6 @@ import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
-import java.security.MessageDigest
 
 private val Context.trustStore by preferencesDataStore(name = "extension_trust")
 
@@ -57,26 +55,19 @@ class ExtensionTrustStore(private val context: Context) {
 }
 
 /**
- * SHA-256 of a package's signing certificate, or null when it can't be read.
+ * SHA-256 of a package's *current* signing certificate, or null when it can't be read.
  *
- * Uses the modern signing-info API where available and falls back to the
- * deprecated one below API 28, since both are still in play at our minSdk.
+ * Uses the modern signing-info API where available and falls back to the deprecated one below
+ * API 28. For a rotated lineage the **last** certificate is the current signer (Mihon trusts that
+ * one); the previous implementation took the first, which is the oldest key. Multi-signer APKs
+ * hash all signers together. See [ExtensionApk.trustHash].
  */
 @Suppress("DEPRECATION", "PackageManagerGetSignatures")
 fun PackageManager.signatureHashOf(pkgId: String): String? = runCatching {
-    val info: PackageInfo
-    val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        info = getPackageInfo(pkgId, PackageManager.GET_SIGNING_CERTIFICATES)
-        info.signingInfo?.let {
-            if (it.hasMultipleSigners()) it.apkContentsSigners else it.signingCertificateHistory
-        }
+    val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        PackageManager.GET_SIGNING_CERTIFICATES
     } else {
-        info = getPackageInfo(pkgId, PackageManager.GET_SIGNATURES)
-        info.signatures
-    } ?: return null
-
-    val first = signatures.firstOrNull() ?: return null
-    MessageDigest.getInstance("SHA-256")
-        .digest(first.toByteArray())
-        .joinToString("") { "%02x".format(it) }
+        PackageManager.GET_SIGNATURES
+    }
+    ExtensionApk.trustHash(getPackageInfo(pkgId, flags))
 }.getOrNull()
