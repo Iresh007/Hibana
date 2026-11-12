@@ -76,8 +76,20 @@ Mihon/Tachiyomi, Manatan, IReader, and LNReader.
 - Scheduled updates: manual, 6h, 12h, 24h, alternate day, weekly (day + time), or
   monthly (date + time)
 - Download manager with queue, retry, and delete
-- **Backup and restore in Mihon's `.tachibk` format** — a Hibana backup restores
-  into Mihon, and a Mihon backup restores into Hibana
+- **Backup and restore in Mihon's `.tachibk` format**, plus import of Manatan
+  `.manatanbk` backups. Import is checked against real backups, but Hibana does
+  not store tracking data, per-chapter flags, notes or source preferences, so
+  those are dropped on import
+- Keiyoushi-style `index.pb` extension repositories are read alongside the JSON
+  indexes
+- Separate **Manga & Manhwa** and **Novels** sections with their own library,
+  update and reader settings
+- App lock (biometrics or device credential, with timeout), secure screen,
+  incognito, custom User-Agent and DNS-over-HTTPS
+- Download housekeeping: delete after read, keep last N, protect bookmarks,
+  download ahead, and auto-download rules for new chapters
+- Accent themes (Lavender, Midnight dusk, Green apple, Strawberry, Tako,
+  Yin & Yang, Material You)
 
 ---
 
@@ -172,14 +184,20 @@ missing** rather than quietly producing an unsigned build.
 | Workflow | Trigger | Purpose |
 |---|---|---|
 | `build.yml` | push, PR | Assemble, unit tests, lint; uploads the debug APK and reports |
+| `android.yml` | push, PR | Installs the debug APK on an emulator, runs a monkey test, uploads logcat and crash logs |
+| `firebase-test-lab.yml` | manual | Runs the APK on Firebase Test Lab (needs the `GCP_SA_KEY` secret) |
 | `release.yml` | `v*` tag | Signed release APK, verified, attached to a GitHub Release |
 
 ---
 
 ## Roadmap
 
-- Separate Manga and Novel sections, with their own settings
-- Import Manatan `.manatanbk` backups
+- Wire the remaining settings that are still stored but unused (crop borders,
+  zoom start position, dual-page split, rotate wide pages, and a few others)
+- Run real extensions end to end on a device (verified so far only by
+  checking their API references and on an emulator that opens an empty app)
+- Cloudflare challenge handling for extensions
+- Upgrade AGP, Kotlin and libraries together once the extension toolchain allows
 - AniList / MyAnimeList progress tracking
 - Windows desktop build
 - Anime support — a possible later phase of the wider project, out of scope here
