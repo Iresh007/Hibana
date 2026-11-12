@@ -57,14 +57,52 @@ class AppContainer(context: Context) {
         categoryDao = database.categoryDao(),
         sourceManager = sourceManager,
         incognito = { settingsRepository.settings.first().incognitoMode },
-        onNewChapters = { ids ->
-            if (settingsRepository.settings.first().downloadNewChapters) downloader.enqueue(ids)
-        },
+        onNewChapters = { ids -> autoDownloadNew(ids) },
         defaultCategoryId = { settingsRepository.settings.first().defaultCategoryId },
-        onChapterFinished = { id ->
-            if (settingsRepository.settings.first().removeAfterRead) downloader.delete(id)
-        },
+        onChapterFinished = { id -> afterChapterFinished(id) },
     )
+
+    /** Auto-download for newly found chapters, honouring "only if nothing unread". */
+    private suspend fun autoDownloadNew(ids: List<Long>) {
+        val prefs = settingsRepository.settings.first()
+        if (!prefs.downloadNewChapters || ids.isEmpty()) return
+        if (prefs.downloadNewUnreadOnly) {
+            val novelId = database.chapterDao().getById(ids.first())?.novelId
+            if (novelId != null) {
+                val unread = libraryRepository.observeChapters(novelId).first()
+                    .any { !it.read && it.id !in ids }
+                // Already has a backlog: don't pile more storage on top of it.
+                if (unread) return
+            }
+        }
+        downloader.enqueue(ids)
+    }
+
+    /** Post-read housekeeping: delete-after-read, keep-last-N, and download-ahead. */
+    private suspend fun afterChapterFinished(id: Long) {
+        val prefs = settingsRepository.settings.first()
+        val chapter = database.chapterDao().getById(id) ?: return
+        val all = libraryRepository.observeChapters(chapter.novelId).first()
+            .sortedWith(compareBy({ it.number }, { it.dateUpload }))
+        fun deletable(c: com.opennovel.reader.data.db.ChapterEntity) =
+            c.downloaded && (!c.bookmark || prefs.removeBookmarkedChapters)
+        if (prefs.removeAfterRead) {
+            if (deletable(chapter)) downloader.delete(id)
+        } else if (prefs.keepReadChapters > 0) {
+            val readDownloaded = all.filter { it.read && it.downloaded }
+            val surplus = readDownloaded.size - prefs.keepReadChapters
+            if (surplus > 0) {
+                readDownloaded.take(surplus).filter { deletable(it) }.forEach { downloader.delete(it.id) }
+            }
+        }
+        if (prefs.downloadAhead > 0) {
+            val idx = all.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                val ahead = all.drop(idx + 1).filter { !it.downloaded }.take(prefs.downloadAhead).map { it.id }
+                if (ahead.isNotEmpty()) downloader.enqueue(ahead)
+            }
+        }
+    }
 
     /** Reads Manatan's own backup format, which is not Tachiyomi's. */
     val manatanImporter = com.opennovel.reader.backup.ManatanBackupImporter(
