@@ -41,7 +41,11 @@ android {
         minSdk = 26
         targetSdk = 34
         // ML Kit OCR/translate ship ~28 MB of native code per ABI; x86 is emulator-only.
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+            // CI emulator runs are x86_64; pass -PincludeX86=true to add it.
+            if (project.hasProperty("includeX86")) abiFilters += "x86_64"
+        }
         versionCode = 1
         // The release workflow passes -PversionName=<tag without v>, so the
         // installed app reports exactly what was shipped. Falls back to the

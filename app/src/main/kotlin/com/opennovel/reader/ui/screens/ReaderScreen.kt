@@ -57,6 +57,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculatePan
 import androidx.compose.foundation.gestures.calculateZoom
@@ -795,7 +796,7 @@ private fun PagedImage(url: String, index: Int, doubleTapZoom: Boolean = true) {
             .fillMaxSize()
             .onSizeChanged { size = it }
             .pointerInput(url) {
-                androidx.compose.foundation.gestures.awaitEachGesture {
+                awaitEachGesture {
                     awaitFirstDown(requireUnconsumed = false)
                     do {
                         val event = awaitPointerEvent()
