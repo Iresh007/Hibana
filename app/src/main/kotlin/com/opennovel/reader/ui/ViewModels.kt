@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -79,7 +80,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(SourceBrowseViewModel::class.java) ->
             SourceBrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
-            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.extensionTrustStore, c.appContext)
+            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.extensionTrustStore, c.appContext, c.settingsRepository)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
             ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository, c.sectionRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
@@ -1065,6 +1066,7 @@ class ExtensionsViewModel(
     private val indexParser: com.opennovel.reader.extension.RepoIndexParser,
     private val trustStore: com.opennovel.reader.extension.ExtensionTrustStore,
     private val appContext: android.content.Context,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     // --- repositories ("extension stores") ---
@@ -1085,8 +1087,8 @@ class ExtensionsViewModel(
 
     /** Catalogue after the language filter; empty filter means show everything. */
     val catalogue: StateFlow<List<com.opennovel.reader.extension.RepoExtension>> =
-        combine(_catalogue, _enabledLanguages) { list, langs ->
-            if (langs.isEmpty()) list else list.filter { it.lang in langs }
+        combine(_catalogue, _enabledLanguages, settingsRepository.settings.map { it.includeNsfwSources }.distinctUntilChanged()) { list, langs, nsfw ->
+            list.filter { (langs.isEmpty() || it.lang in langs) && (nsfw || !it.nsfw) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Extensions with a newer version available, surfaced as an update count. */

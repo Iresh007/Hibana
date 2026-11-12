@@ -3,6 +3,7 @@ package com.opennovel.reader.ui.theme
 import android.app.Activity
 import android.os.Build
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -16,6 +17,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
+import com.opennovel.reader.data.AppTheme
 import com.opennovel.reader.data.ThemeMode
 
 // Hibana brand palette — lamplight amber/gold on deep navy, from the lantern logo.
@@ -69,6 +71,7 @@ fun OpenNovelTheme(
     // Off by default so the Hibana brand palette always shows, rather than being
     // replaced by Material You wallpaper colors on Android 12+.
     dynamicColor: Boolean = false,
+    appTheme: AppTheme = AppTheme.DEFAULT,
     content: @Composable () -> Unit,
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -80,13 +83,20 @@ fun OpenNovelTheme(
         ThemeMode.SYSTEM -> systemDark
     }
 
-    val colorScheme = when {
+    val baseScheme = when {
         themeMode == ThemeMode.BLACK -> BlackColors
         themeMode == ThemeMode.SEPIA -> SepiaColors
-        dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
+        (dynamicColor || appTheme == AppTheme.MONET) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
             if (useDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
         useDark -> DarkColors
         else -> LightColors
+    }
+    // Black/sepia reading modes keep their own palette; named themes only recolour
+    // the standard light/dark schemes so OLED black stays black.
+    val colorScheme = if (themeMode == ThemeMode.BLACK || themeMode == ThemeMode.SEPIA) {
+        baseScheme
+    } else {
+        baseScheme.withAppTheme(appTheme, useDark)
     }
 
     val view = LocalView.current
@@ -102,5 +112,34 @@ fun OpenNovelTheme(
         colorScheme = colorScheme,
         typography = Typography(),
         content = content,
+    )
+}
+
+/** Accent triple (primary, secondary, tertiary) for a named app theme. */
+private fun ColorScheme.withAppTheme(theme: AppTheme, dark: Boolean): ColorScheme = when (theme) {
+    AppTheme.DEFAULT, AppTheme.MONET -> this
+    AppTheme.LAVENDER -> accents(dark, Color(0xFFB69DF8), Color(0xFF6F52B8), Color(0xFFD0BCFF), Color(0xFF8C6FD6), Color(0xFFF0A6CA), Color(0xFFB04C80))
+    AppTheme.MIDNIGHT_DUSK -> accents(dark, Color(0xFFF02475), Color(0xFFB0124F), Color(0xFFF79CBB), Color(0xFFD9406E), Color(0xFFFF8C5A), Color(0xFFC25A2D))
+    AppTheme.GREEN_APPLE -> accents(dark, Color(0xFF7BD66E), Color(0xFF2E7D32), Color(0xFFB5E8A8), Color(0xFF558B2F), Color(0xFFE6E36A), Color(0xFF9E9D24))
+    AppTheme.STRAWBERRY -> accents(dark, Color(0xFFFF8A9B), Color(0xFFC62840), Color(0xFFFFB3BE), Color(0xFFE05468), Color(0xFFFFCB8A), Color(0xFFD08428))
+    AppTheme.TAKO -> accents(dark, Color(0xFFF3B375), Color(0xFFA85F1A), Color(0xFFC8A6E8), Color(0xFF7B5AA8), Color(0xFF9BC7D8), Color(0xFF3F7F99))
+    AppTheme.YIN_YANG -> accents(dark, Color(0xFFE6E6E6), Color(0xFF303030), Color(0xFFBDBDBD), Color(0xFF616161), Color(0xFF9E9E9E), Color(0xFF424242))
+}
+
+private fun ColorScheme.accents(
+    dark: Boolean,
+    pDark: Color, pLight: Color,
+    sDark: Color, sLight: Color,
+    tDark: Color, tLight: Color,
+): ColorScheme {
+    val p = if (dark) pDark else pLight
+    val s = if (dark) sDark else sLight
+    val t = if (dark) tDark else tLight
+    fun on(c: Color) = if (c.luminance() > 0.5f) Color(0xFF1B1B1B) else Color.White
+    return copy(
+        primary = p, onPrimary = on(p),
+        secondary = s, onSecondary = on(s),
+        tertiary = t, onTertiary = on(t),
+        primaryContainer = p.copy(alpha = 1f).let { if (dark) it.copy(red = it.red * .3f, green = it.green * .3f, blue = it.blue * .3f) else it.copy(red = 1f - (1f - it.red) * .25f, green = 1f - (1f - it.green) * .25f, blue = 1f - (1f - it.blue) * .25f) },
     )
 }

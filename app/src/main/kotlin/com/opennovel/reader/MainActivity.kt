@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
         setContent {
             val settingsVm: SettingsViewModel = viewModel(factory = factory)
             val settings by settingsVm.settings.collectAsStateWithLifecycle()
-            OpenNovelTheme(themeMode = settings.themeMode, dynamicColor = settings.dynamicColor) {
+            OpenNovelTheme(themeMode = settings.themeMode, dynamicColor = settings.dynamicColor, appTheme = settings.appTheme) {
                 RootNav(factory = factory)
             }
         }
