@@ -31,9 +31,9 @@ private val HibanaCream = Color(0xFFF3ECD9)    // warm paper cream — reading t
 private val HibanaNavy = Color(0xFF0A0E18)     // deep night navy
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFFB4741A),
+    primary = Color(0xFF965C10),
     onPrimary = Color.White,
-    secondary = Color(0xFFC2571F),
+    secondary = Color(0xFFA84A18),
     background = Color(0xFFFDF9F1),
     surface = Color(0xFFFFFDF8),
     onSurface = Color(0xFF211C12),
