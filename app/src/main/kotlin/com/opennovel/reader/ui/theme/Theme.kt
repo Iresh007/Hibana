@@ -56,17 +56,6 @@ private val DarkColors = darkColorScheme(
     onPrimaryContainer = Color(0xFFFBEBCF),
 )
 
-/** Near-black scheme for OLED / distraction-free night reading. */
-private val BlackColors = darkColorScheme(
-    primary = HibanaAmber,
-    secondary = HibanaGoldSoft,
-    background = Color(0xFF000000),
-    surface = Color(0xFF000000),
-    onSurface = Color(0xFFEADFC7),
-    surfaceVariant = Color(0xFF14110B),
-    onSurfaceVariant = HibanaGoldSoft,
-)
-
 @Composable
 fun OpenNovelTheme(
     themeMode: ThemeMode,
@@ -85,25 +74,27 @@ fun OpenNovelTheme(
         ThemeMode.SYSTEM -> systemDark
     }
 
-    val baseScheme = when {
-        themeMode == ThemeMode.BLACK -> BlackColors
-        themeMode == ThemeMode.SEPIA -> SepiaColors
-        (dynamicColor || appTheme == AppTheme.MONET) && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S ->
-            if (useDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-        useDark -> DarkColors
-        else -> LightColors
-    }
-    // Black/sepia reading modes keep their own palette; named themes only recolour
-    // the standard light/dark schemes so OLED black stays black.
-    val isDynamic = (dynamicColor || appTheme == AppTheme.MONET) &&
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-        themeMode != ThemeMode.BLACK && themeMode != ThemeMode.SEPIA
+    val wantDynamic = (dynamicColor || appTheme == AppTheme.MONET) &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
     val colorScheme = when {
-        themeMode == ThemeMode.BLACK || themeMode == ThemeMode.SEPIA ->
-            baseScheme.withTonalSurfaces(dark = themeMode == ThemeMode.BLACK)
+        themeMode == ThemeMode.SEPIA -> SepiaColors.withTonalSurfaces(dark = false)
+        // AMOLED keeps pure-black surfaces but still honours the chosen accent
+        // theme (or the wallpaper colours when Material You is on).
+        themeMode == ThemeMode.BLACK -> {
+            val base = if (wantDynamic) dynamicDarkColorScheme(context)
+            else DarkColors.withAppTheme(appTheme, dark = true)
+            base.copy(
+                background = Color.Black,
+                surface = Color.Black,
+                surfaceVariant = Color(0xFF121212),
+            ).withTonalSurfaces(dark = true)
+        }
         // Wallpaper colours already ship a complete tonal set.
-        isDynamic -> baseScheme
-        else -> baseScheme.withAppTheme(appTheme, useDark).withTonalSurfaces(useDark)
+        wantDynamic ->
+            if (useDark) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        else -> (if (useDark) DarkColors else LightColors)
+            .withAppTheme(appTheme, useDark)
+            .withTonalSurfaces(useDark)
     }
 
     val view = LocalView.current

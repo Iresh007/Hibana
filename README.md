@@ -17,102 +17,129 @@ Mihon/Tachiyomi, Manatan, IReader, and LNReader.
 
 ---
 
+## Status
+
+Hibana is a personal-use project under active development. CI (build, unit
+tests, lint and an emulator launch test) is green, but a lot has only been
+verified by tests and an empty first-run emulator, not by long real-world use.
+Treat anything not listed under **Works** as unproven.
+
 ## Features
 
 **Library**
-- Categories (custom shelves) with tabs, plus per-entry assignment
-- Tri-state filters (downloaded / unread / started) — off, only, or exclude
-- Sort by title, total chapters, unread count, latest chapter, date added, random
-- Comfortable grid, compact grid, or list, with unread/downloaded cover badges
-- Long-press multi-select for batch actions
+- Separate **Manga & Manhwa** and **Novels** sections, each with its own library,
+  updates, categories and reader settings
+- Categories (custom shelves) with tabs and chapter counts; a default category
+  for new entries
+- Tri-state filters (downloaded / unread / started), sort by title, chapters,
+  unread, latest chapter, date added or random
+- Grid, compact grid or list, with unread and downloaded cover badges
+- Long-press multi-select for batch actions; overflow menu with *Update library*
+  and *Open random entry*
+
+**Entry and chapters**
+- Swipe a chapter right to mark read, left to bookmark
+- Long-press to multi-select (select all / invert), then bookmark, mark read or
+  unread, download or delete downloads
+- Per-entry chapter filter, sort and title display
+- Download housekeeping: delete after read, keep last N read chapters, protect
+  bookmarked chapters, download ahead, and rules for auto-downloading new
+  chapters
 
 **Reading**
-- Text reader with font size, line spacing, font family, and 5 themes
-- Comic reader with five page layouts: webtoon (continuous), gapped vertical
-  strip, paged left-to-right, **paged right-to-left** (Japanese manga), and paged
-  vertical (e-reader style)
-- In-reader settings overlay so type and layout are adjusted while reading
-- Missing-chapter detection from chapter numbering, plus upload dates
+- Text reader with font size, line spacing, font family and reading modes
+- Comic reader: webtoon, gapped strip, paged LTR, paged RTL (manga) and paged
+  vertical; pinch and double-tap zoom; resume where you left off
+- Reader options: image scale type, side padding, brightness, colour filter,
+  grayscale, inverted colours, orientation, page number, page transitions,
+  zoom if landscape, flash on page change, draw into display cutout
+- Next/previous chapter honours *skip read*, *skip duplicate* and *skip filtered*
+  chapters
 
 **Text-to-speech and translation**
-- Reads novel chapters aloud — play/pause/skip, speed, pitch, paragraph
-  highlighting and auto-scroll, with a foreground playback service
-- Reads **comics** aloud too, via on-device OCR (ML Kit: Latin, Japanese, Korean,
-  Chinese). Panel order is corrected per script, so right-to-left Japanese pages
-  narrate in reading order rather than detection order
-- On-device translation into **English or Hindi**
-- Narration language: English or Hindi
+- Narrates novels with play/pause/skip, speed, pitch and paragraph highlighting
+- Reads **comics** aloud via on-device OCR (ML Kit: Latin, Japanese, Korean,
+  Chinese) with per-script panel order
+- On-device translation into English or Hindi
 
 **Sources and extensions**
-- Four ecosystems supported side by side:
-  - **Mihon / Tachiyomi** and **Manatan** — APK extensions, via a bundled
-    `eu.kanade.tachiyomi` source-api runtime
-  - **IReader** — APK extensions, against the published `io.github.ireaderorg:source-api`
-  - **LNReader** — JavaScript plugins, executed on Rhino (plugins compile to ES5,
-    so no NDK or per-ABI splits are needed)
-- **Extension stores**: add any repository index URL, including custom and
-  self-hosted ones. Both `index.min.json` (Mihon-style) and `plugins.min.json`
-  (LNReader) are detected automatically
-- Update detection, language filtering, and per-source browsing (Popular/Latest)
-- **Trust model**: APK extensions run in-process, so they are not loaded until
-  you approve them. Trust is keyed on package **plus signing certificate**, so an
-  update re-signed by someone else must be approved again
+- Four ecosystems side by side: **Mihon/Tachiyomi** and **Manatan** APK
+  extensions (through a bundled `eu.kanade.tachiyomi` source-api runtime),
+  **IReader** APK extensions, and **LNReader** JavaScript plugins (Rhino)
+- Extension stores: any repository URL, including Keiyoushi-style `index.pb`,
+  `index.min.json` and LNReader `plugins.min.json`
+- Extension list with installed, available and updatable sections, source icons,
+  language filter and an extension-info page (trust, language, links)
+- **Trust model**: APK extensions run in-process and are not loaded until you
+  approve them; trust is bound to the package and its signing certificate
+- Sources tab with pinning, WebView, and per-source preferences
+- Option to hide 18+ extensions and sources
+- Global search across all installed sources
 
-**Discovery**
-- Global search across every installed source, results grouped per source, each
-  group appearing as soon as that source responds
-- Browse split into **Sources | Extensions | Migrate**
+**Migration**
+- Move one, several or all entries from a source to another; candidates are
+  scored and compared, progress is re-matched by chapter number, nothing moves
+  until you confirm; migration options (chapters read, categories, bookmarks,
+  keep or remove the original)
 
-**Source migration**
-- Move entries when a source breaks or falls behind — one title, several, or an
-  entire source at once
-- Candidates are matched by normalised title plus author, scored and shown with a
-  chapter-count comparison; nothing moves until you confirm
-- Reading progress is re-matched **by chapter number**, so it survives the move
-- Search all sources, or restrict to a chosen subset
+**Updates, backups and data**
+- Updates tab and library update with options: only started, only non-completed,
+  excluded categories, only while charging, private notifications
+- Scheduled updates (6h to monthly) and scheduled automatic backups
+- **Backup/restore in Mihon's `.tachibk` format**, and **import of Manatan
+  `.manatanbk`** backups. Hibana does not store tracking data, per-chapter
+  flags, notes or source preferences, so those are dropped on import
+- History and reading statistics
 
-**Library upkeep**
-- Updates tab with newest chapters across the library
-- Scheduled updates: manual, 6h, 12h, 24h, alternate day, weekly (day + time), or
-  monthly (date + time)
-- Download manager with queue, retry, and delete
-- **Backup and restore in Mihon's `.tachibk` format**, plus import of Manatan
-  `.manatanbk` backups. Import is checked against real backups, but Hibana does
-  not store tracking data, per-chapter flags, notes or source preferences, so
-  those are dropped on import
-- Keiyoushi-style `index.pb` extension repositories are read alongside the JSON
-  indexes
-- Separate **Manga & Manhwa** and **Novels** sections with their own library,
-  update and reader settings
-- App lock (biometrics or device credential, with timeout), secure screen,
-  incognito, custom User-Agent and DNS-over-HTTPS
-- Download housekeeping: delete after read, keep last N, protect bookmarks,
-  download ahead, and auto-download rules for new chapters
-- Accent themes (Lavender, Midnight dusk, Green apple, Strawberry, Tako,
-  Yin & Yang, Material You)
+**Appearance and privacy**
+- Themes: Light, Dark, System, Sepia and **AMOLED** (pure black)
+- Accent themes: Hibana, Lavender, Midnight dusk, Green apple, Strawberry, Tako,
+  Yin & Yang, and **Material You** (wallpaper colours, Android 12+) — accents
+  apply to Light, Dark, System and AMOLED
+- Relative or absolute dates with a custom format
+- App lock (biometrics and/or device credential, with timeout), secure screen,
+  incognito mode
+- Custom User-Agent and DNS-over-HTTPS applied to the app and extensions
+
+**Known gaps**
+- Reader: crop borders, zoom start position, dual-page split and rotate wide
+  pages are stored settings with no effect yet
+- A number of other settings are still stored but not wired (tracking, language
+  badge, tablet UI and others)
+- Cloudflare challenge handling for extensions is not implemented
+- Real extensions have been checked only statically and in unit tests; they have
+  not been exercised end to end on a device
 
 ---
 
 ## Build
 
-Requires **JDK 17** and the Android SDK (Android Studio Ladybug or newer).
+Requires **JDK 17 or newer** (CI uses 21) and the Android SDK.
 
 ```bash
-gradle wrapper --gradle-version 8.11.1   # first time, to create ./gradlew
 ./gradlew :app:assembleDebug
 ./gradlew :app:installDebug
+./gradlew :app:testDebugUnitTest :app:lintDebug
 ```
 
-The binary `gradle/wrapper/gradle-wrapper.jar` is intentionally not committed;
-`gradle wrapper` regenerates it, and Android Studio does so on first sync.
+`gradle/wrapper/gradle-wrapper.jar` is not committed; run `gradle wrapper
+--gradle-version 8.14.5` once, or let Android Studio do it on first sync.
+
+The Firebase plugin is applied only if `app/google-services.json` exists (it is
+git-ignored); without it the app builds normally.
 
 | | |
 |---|---|
+| applicationId | `com.hibana.app` |
 | minSdk | 26 — the floor declared by `io.github.ireaderorg:source-api-android` |
-| targetSdk | 34 |
-| compileSdk | 36 — required by `androidx.core` 1.17 |
-| Kotlin | 2.2.21 (matches what IReader extensions are built against) |
-| Gradle / AGP | 8.11.1 / 8.9.1 |
+| targetSdk / compileSdk | 34 / 36 (`androidx.core` 1.17 needs 36) |
+| Kotlin | 2.2.21, pinned to what IReader extensions are built against |
+| Gradle / AGP | 8.14.5 / 8.9.1 |
+| ABIs | arm64-v8a, armeabi-v7a (add x86_64 with `-PincludeX86=true`) |
+
+AGP, Kotlin and library versions are deliberately pinned together; upgrading one
+usually forces the others and the extension runtime, so do it as a separate,
+tested step.
 
 ---
 
@@ -192,13 +219,11 @@ missing** rather than quietly producing an unsigned build.
 
 ## Roadmap
 
-- Wire the remaining settings that are still stored but unused (crop borders,
-  zoom start position, dual-page split, rotate wide pages, and a few others)
-- Run real extensions end to end on a device (verified so far only by
-  checking their API references and on an emulator that opens an empty app)
+- Wire the remaining unused settings (see *Known gaps*)
+- Run real extensions end to end on a device and fix what breaks
 - Cloudflare challenge handling for extensions
-- Upgrade AGP, Kotlin and libraries together once the extension toolchain allows
-- AniList / MyAnimeList progress tracking
+- AniList / MyAnimeList tracking
+- Upgrade AGP, Kotlin and libraries together
 - Windows desktop build
 - Anime support — a possible later phase of the wider project, out of scope here
 

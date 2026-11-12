@@ -138,10 +138,15 @@ private fun AppearanceSection(factory: ViewModelProvider.Factory) {
         ChipRow(
             options = ThemeMode.entries,
             selected = s.themeMode,
-            label = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+            label = {
+                when (it) {
+                    ThemeMode.BLACK -> "AMOLED"
+                    else -> it.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                }
+            },
             onSelect = vm::setTheme,
         )
-        Hint("Sepia and black are reading-friendly variants of light and dark.")
+        Hint("AMOLED uses pure black to save power on OLED screens and keeps your accent colour. Sepia is a warm, low-glare reading mode.")
     }
 
     PrefSection("Colour") {
@@ -151,7 +156,7 @@ private fun AppearanceSection(factory: ViewModelProvider.Factory) {
             label = { it.label },
             onSelect = extra::setAppTheme,
         )
-        Hint("Accent palette. Sepia and Black keep their own reading colours.")
+        Hint("Accent palette for Light, Dark, System and AMOLED. Material You takes colours from your wallpaper (Android 12+). Sepia keeps its own reading colours.")
         SwitchRow(
             title = "Dynamic colour",
             subtitle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
