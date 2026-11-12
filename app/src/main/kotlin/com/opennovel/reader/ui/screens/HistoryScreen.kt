@@ -1,6 +1,5 @@
 package com.opennovel.reader.ui.screens
 
-import android.text.format.DateUtils
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -189,8 +188,4 @@ private fun EmptyHistory(section: AppSection) {
 }
 
 private fun relativeTime(epochMillis: Long): String =
-    DateUtils.getRelativeTimeSpanString(
-        epochMillis,
-        System.currentTimeMillis(),
-        DateUtils.MINUTE_IN_MILLIS,
-    ).toString()
+    com.opennovel.reader.ui.DateDisplay.formatWithTime(epochMillis)

@@ -60,6 +60,7 @@ class AppContainer(context: Context) {
         onNewChapters = { ids ->
             if (settingsRepository.settings.first().downloadNewChapters) downloader.enqueue(ids)
         },
+        defaultCategoryId = { settingsRepository.settings.first().defaultCategoryId },
         onChapterFinished = { id ->
             if (settingsRepository.settings.first().removeAfterRead) downloader.delete(id)
         },
@@ -133,6 +134,8 @@ class AppContainer(context: Context) {
                 settingsRepository.settings.collect {
                     eu.kanade.tachiyomi.network.HostNetworkSettings.userAgent = it.userAgent
                     eu.kanade.tachiyomi.network.HostNetworkSettings.dohUrl = it.dnsOverHttps.url
+                    com.opennovel.reader.ui.DateDisplay.relative = it.relativeTimestamps
+                    com.opennovel.reader.ui.DateDisplay.pattern = it.dateFormat
                 }
             }
 

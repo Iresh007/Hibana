@@ -746,14 +746,4 @@ private fun chapterLabel(chapter: ChapterEntity, fullTitle: Boolean): String {
     return "Chapter $number"
 }
 
-/** Recent uploads read better as "2 days ago"; older ones as a date. */
-private fun formatUploadDate(millis: Long): String {
-    val days = ((System.currentTimeMillis() - millis) / 86_400_000L).toInt()
-    return when {
-        days <= 0 -> "Today"
-        days == 1 -> "Yesterday"
-        days < 30 -> "$days days ago"
-        else -> java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault())
-            .format(java.util.Date(millis))
-    }
-}
+private fun formatUploadDate(millis: Long): String = com.opennovel.reader.ui.DateDisplay.format(millis)

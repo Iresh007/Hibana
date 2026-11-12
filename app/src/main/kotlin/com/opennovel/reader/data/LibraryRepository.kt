@@ -41,6 +41,8 @@ class LibraryRepository(
     private val onNewChapters: suspend (List<Long>) -> Unit = {},
     /** Called when a chapter crosses the read threshold. */
     private val onChapterFinished: suspend (Long) -> Unit = {},
+    /** Category new library entries land in; <= 0 means leave uncategorised. */
+    private val defaultCategoryId: suspend () -> Long = { 0L },
 ) {
     fun observeLibrary(): Flow<List<NovelEntity>> = novelDao.observeLibrary()
 
@@ -217,6 +219,14 @@ class LibraryRepository(
 
     suspend fun addToLibrary(novelId: Long, inLibrary: Boolean) {
         novelDao.setInLibrary(novelId, inLibrary, System.currentTimeMillis())
+        if (inLibrary && categoryDao.categoryIdsForNovel(novelId).isEmpty()) {
+            val target = defaultCategoryId()
+            // Only apply a default that still exists; a deleted category would
+            // otherwise leave a dangling assignment.
+            if (target > 0 && categoryDao.count() > 0) {
+                runCatching { categoryDao.assign(NovelCategoryCrossRef(novelId, target)) }
+            }
+        }
     }
 
     /**
