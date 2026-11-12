@@ -375,10 +375,33 @@ fun ReaderScreen(
                         listState = listState,
                         pagerState = pagerState,
                         doubleTapZoom = settings.doubleTapZoom,
-                        contentScale = settings.imageScaleType.toContentScale(),
+                        contentScale = if (settings.landscapeZoom &&
+                            androidx.compose.ui.platform.LocalConfiguration.current.orientation ==
+                            android.content.res.Configuration.ORIENTATION_LANDSCAPE
+                        ) {
+                            // Landscape: fill the width and let the page scroll, like Mihon's
+                            // "zoom if landscape" option.
+                            androidx.compose.ui.layout.ContentScale.FillWidth
+                        } else {
+                            settings.imageScaleType.toContentScale()
+                        },
                         colorFilter = pageColorFilter(settings),
                         sidePaddingPct = settings.webtoonSidePadding,
                     )
+                    // E-ink friendly flash on each page turn.
+                    var flash by remember { mutableStateOf(false) }
+                    var firstPage by remember { mutableStateOf(true) }
+                    LaunchedEffect(position) {
+                        if (firstPage) { firstPage = false; return@LaunchedEffect }
+                        if (settings.flashOnPageChange) {
+                            flash = true
+                            kotlinx.coroutines.delay(90)
+                            flash = false
+                        }
+                    }
+                    if (flash) {
+                        Box(Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black))
+                    }
                 }
 
                 else -> LazyColumn(

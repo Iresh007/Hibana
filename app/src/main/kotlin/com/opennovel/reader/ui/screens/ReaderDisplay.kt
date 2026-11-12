@@ -4,6 +4,7 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.pm.ActivityInfo
+import android.os.Build
 import android.view.WindowManager
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -125,5 +126,26 @@ fun ReaderWindowEffects(s: ReaderSettings) {
             ReaderOrientation.LOCKED -> ActivityInfo.SCREEN_ORIENTATION_LOCKED
         }
         onDispose { previous?.let { activity.requestedOrientation = it } }
+    }
+
+    DisposableEffect(s.drawIntoCutout) {
+        val window = context.findActivity()?.window
+        if (window != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            val lp = window.attributes
+            lp.layoutInDisplayCutoutMode = if (s.drawIntoCutout) {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            } else {
+                WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_NEVER
+            }
+            window.attributes = lp
+        }
+        onDispose {
+            if (window != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                val lp = window.attributes
+                lp.layoutInDisplayCutoutMode =
+                    WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
+                window.attributes = lp
+            }
+        }
     }
 }
