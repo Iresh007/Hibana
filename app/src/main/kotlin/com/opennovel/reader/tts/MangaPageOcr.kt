@@ -47,8 +47,13 @@ class MangaPageOcr(private val client: OkHttpClient) {
     /** OCRs one page URL into text lines. Failures yield an empty list. */
     suspend fun readPage(url: String, script: OcrScript): List<String> = withContext(Dispatchers.IO) {
         val bytes = runCatching {
-            client.newCall(Request.Builder().url(url).build()).execute()
-                .use { it.body?.bytes() }
+            if (url.startsWith("file:")) {
+                java.io.File(java.net.URI(url)).readBytes()
+            } else {
+                com.opennovel.reader.source.SourceImages.factory(client)
+                    .newCall(Request.Builder().url(url).build()).execute()
+                    .use { it.body?.bytes() }
+            }
         }.getOrNull() ?: return@withContext emptyList()
 
         val bitmap = runCatching { BitmapFactory.decodeByteArray(bytes, 0, bytes.size) }.getOrNull()

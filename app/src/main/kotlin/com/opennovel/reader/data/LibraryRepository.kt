@@ -163,7 +163,9 @@ class LibraryRepository(
         val novel = novelDao.getById(chapter.novelId) ?: return emptyList()
         val source = sourceManager.get(novel.sourceId) as? com.opennovel.reader.source.ImageChapterSource
             ?: return emptyList()
-        return runCatching { source.getPageUrls(chapter.url) }.getOrDefault(emptyList())
+        val urls = runCatching { source.getPageUrls(chapter.url) }.getOrDefault(emptyList())
+        com.opennovel.reader.source.SourceImages.register(source, urls)
+        return urls
     }
 
     /** Resolves the owning source and fetches a chapter body from the network. */
