@@ -89,7 +89,8 @@ android {
         }
         debug {
             // Debug keeps the default debug key so `assembleDebug` needs nothing.
-            applicationIdSuffix = ".debug"
+            // No applicationIdSuffix: the Firebase app is registered as com.hibana.app,
+            // and google-services.json must match the built package exactly.
             versionNameSuffix = "-debug"
         }
     }
