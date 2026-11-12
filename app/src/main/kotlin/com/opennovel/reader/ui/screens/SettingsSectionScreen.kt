@@ -39,6 +39,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.compose.runtime.setValue
 import com.opennovel.reader.ui.MaintenanceViewModel
 import androidx.compose.ui.Alignment
@@ -591,9 +594,7 @@ private fun DataStorageSection(factory: ViewModelProvider.Factory) {
         AutoBackupFrequency.entries.forEach { option ->
             RadioRow(option.label, s.autoBackupFrequency == option) { extra.setAutoBackupFrequency(option) }
         }
-        // TODO: schedule the periodic worker once a backup destination tree URI
-        // can be persisted; the preference is stored so scheduling can read it.
-        Hint("Automatic backups need a folder you pick once; the schedule is stored and applied when that lands.")
+        Hint("Saved inside the app's own storage (Android/data/<app>/files/backups); the newest 5 are kept. Use Export above to copy one somewhere permanent.")
     }
 
     PrefSection("Storage") {
@@ -747,6 +748,7 @@ private fun AdvancedSection(factory: ViewModelProvider.Factory) {
     }
 
     PrefSection("Diagnostics") {
+        val scope = rememberCoroutineScope()
         ActionRow(
             title = "Dump crash logs",
             subtitle = "Share this process's recent logcat output",
@@ -754,10 +756,13 @@ private fun AdvancedSection(factory: ViewModelProvider.Factory) {
                 // Read straight from logcat rather than keeping our own log file:
                 // since Android 4.1 a process can only read its own entries, so
                 // this is both sufficient and free of other apps' data.
-                val log = runCatching {
-                    Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "500"))
-                        .inputStream.bufferedReader().use { it.readText() }
-                }.getOrElse { "Could not read logcat: ${it.message}" }
+                scope.launch {
+                val log = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    runCatching {
+                        Runtime.getRuntime().exec(arrayOf("logcat", "-d", "-t", "500"))
+                            .inputStream.bufferedReader().use { it.readText() }
+                    }.getOrElse { "Could not read logcat: ${it.message}" }
+                }
                 runCatching {
                     context.startActivity(
                         Intent.createChooser(
@@ -768,6 +773,7 @@ private fun AdvancedSection(factory: ViewModelProvider.Factory) {
                             "Share logs",
                         ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     )
+                }
                 }
             },
         )

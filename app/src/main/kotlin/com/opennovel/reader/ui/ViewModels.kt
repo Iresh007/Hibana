@@ -961,25 +961,28 @@ class BrowseViewModel(
 
     fun selectSource(id: Long) { activeSourceId = id; loadPopular() }
 
-    fun loadPopular() {
+    private var browseJob: kotlinx.coroutines.Job? = null
+
+    /** Runs one browse request, cancelling any still in flight so a slow older
+     *  response can never overwrite the results of a newer query. */
+    private fun browse(fetch: suspend (com.opennovel.reader.source.Source) -> List<SNovel>) {
         val source = activeSourceId?.let { sourceManager.get(it) } ?: return
+        browseJob?.cancel()
         _loading.value = true
-        viewModelScope.launch {
-            runCatching { source.getPopularNovels(1) }
-                .onSuccess { _results.value = it.novels }
-            _loading.value = false
+        browseJob = viewModelScope.launch {
+            try {
+                runCatching { fetch(source) }
+                    .onSuccess { _results.value = it }
+                    .onFailure { if (it is kotlinx.coroutines.CancellationException) throw it }
+            } finally {
+                _loading.value = false
+            }
         }
     }
 
-    fun search(query: String) {
-        val source = activeSourceId?.let { sourceManager.get(it) } ?: return
-        _loading.value = true
-        viewModelScope.launch {
-            runCatching { source.searchNovels(query, 1) }
-                .onSuccess { _results.value = it.novels }
-            _loading.value = false
-        }
-    }
+    fun loadPopular() = browse { it.getPopularNovels(1).novels }
+
+    fun search(query: String) = browse { it.searchNovels(query, 1).novels }
 
     /** Adds a browsed novel to the library and returns its local id. */
     suspend fun addToLibrary(novel: SNovel): Long? {
