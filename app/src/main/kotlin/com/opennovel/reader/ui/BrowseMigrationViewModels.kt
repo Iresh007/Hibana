@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -118,8 +119,14 @@ class SourceListViewModel(private val appContext: Context) : ViewModel() {
         container.extensionManager.installed,
         pinnedIds,
         container.sectionRepository.activeSection,
-    ) { sources, installed, pins, active ->
-        sources.filter { sectionOf(it) == active }.map { source ->
+        container.settingsRepository.settings.map { it.includeNsfwSources }.distinctUntilChanged(),
+    ) { sources, installed, pins, active, includeNsfw ->
+        sources.filter { sectionOf(it) == active }.filter { source ->
+            // A source's package isn't recorded, so match by name like pkgId below.
+            includeNsfw || installed.none {
+                it.nsfw && (it.name.equals(source.name, true) || it.name.contains(source.name, true))
+            }
+        }.map { source ->
             BrowseSource(
                 id = source.id,
                 name = source.name,

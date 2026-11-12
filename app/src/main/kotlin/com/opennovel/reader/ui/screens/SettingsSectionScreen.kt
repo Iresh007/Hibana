@@ -138,13 +138,25 @@ private fun AppearanceSection(factory: ViewModelProvider.Factory) {
         ChipRow(
             options = ThemeMode.entries,
             selected = s.themeMode,
-            label = { it.name.lowercase().replaceFirstChar { c -> c.uppercase() } },
+            label = {
+                when (it) {
+                    ThemeMode.BLACK -> "AMOLED"
+                    else -> it.name.lowercase().replaceFirstChar { c -> c.uppercase() }
+                }
+            },
             onSelect = vm::setTheme,
         )
-        Hint("Sepia and black are reading-friendly variants of light and dark.")
+        Hint("AMOLED uses pure black to save power on OLED screens and keeps your accent colour. Sepia is a warm, low-glare reading mode.")
     }
 
     PrefSection("Colour") {
+        ChipRow(
+            options = com.opennovel.reader.data.AppTheme.entries,
+            selected = s.appTheme,
+            label = { it.label },
+            onSelect = extra::setAppTheme,
+        )
+        Hint("Accent palette for Light, Dark, System and AMOLED. Material You takes colours from your wallpaper (Android 12+). Sepia keeps its own reading colours.")
         SwitchRow(
             title = "Dynamic colour",
             subtitle = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -514,7 +526,7 @@ private fun BrowseSection(factory: ViewModelProvider.Factory, onOpenRepos: () ->
     PrefSection("Sources") {
         SwitchRow(
             title = "Include NSFW sources",
-            subtitle = "Show sources flagged 18+ in Browse and global search",
+            subtitle = "Show sources from extensions flagged 18+ in the Sources and Extensions lists",
             checked = s.includeNsfwSources,
             onCheckedChange = extra::setIncludeNsfwSources,
         )
@@ -659,6 +671,21 @@ private fun PrivacySection(factory: ViewModelProvider.Factory) {
             checked = s.appLockEnabled,
             onCheckedChange = extra::setAppLockEnabled,
         )
+        if (s.appLockEnabled) {
+            SwitchRow(
+                title = "Allow biometrics",
+                subtitle = "Fingerprint or face as well as PIN/pattern (Android 11+ can require the PIN only)",
+                checked = s.lockWithBiometrics,
+                onCheckedChange = extra::setLockWithBiometrics,
+            )
+            ChipRow(
+                options = com.opennovel.reader.data.LockTimeout.entries,
+                selected = s.lockTimeout,
+                label = { it.label },
+                onSelect = extra::setLockTimeout,
+            )
+            Hint("How long Hibana can stay in the background before asking again.")
+        }
     }
 
     PrefSection("Screen") {

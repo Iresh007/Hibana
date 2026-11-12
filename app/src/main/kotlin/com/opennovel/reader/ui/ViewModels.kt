@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
@@ -79,9 +80,9 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(SourceBrowseViewModel::class.java) ->
             SourceBrowseViewModel(c.sourceManager, c.libraryRepository)
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
-            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.extensionTrustStore, c.appContext)
+            ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.extensionTrustStore, c.appContext, c.settingsRepository)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
-            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository, c.sectionRepository)
+            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository, c.sectionRepository, c.chapterSettingsDao)
         else -> error("Unknown ViewModel ${modelClass.name}")
     } as T
 }
@@ -1065,6 +1066,7 @@ class ExtensionsViewModel(
     private val indexParser: com.opennovel.reader.extension.RepoIndexParser,
     private val trustStore: com.opennovel.reader.extension.ExtensionTrustStore,
     private val appContext: android.content.Context,
+    private val settingsRepository: SettingsRepository,
 ) : ViewModel() {
 
     // --- repositories ("extension stores") ---
@@ -1085,8 +1087,8 @@ class ExtensionsViewModel(
 
     /** Catalogue after the language filter; empty filter means show everything. */
     val catalogue: StateFlow<List<com.opennovel.reader.extension.RepoExtension>> =
-        combine(_catalogue, _enabledLanguages) { list, langs ->
-            if (langs.isEmpty()) list else list.filter { it.lang in langs }
+        combine(_catalogue, _enabledLanguages, settingsRepository.settings.map { it.includeNsfwSources }.distinctUntilChanged()) { list, langs, nsfw ->
+            list.filter { (langs.isEmpty() || it.lang in langs) && (nsfw || !it.nsfw) }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     /** Extensions with a newer version available, surfaced as an update count. */
@@ -1450,6 +1452,7 @@ class ReaderViewModel(
     private val translator: com.opennovel.reader.tts.TranslationManager,
     private val settingsRepo: SettingsRepository,
     private val sectionRepo: SectionRepository,
+    private val chapterSettingsDao: ChapterSettingsDao,
 ) : ViewModel() {
 
     /**
@@ -1590,8 +1593,29 @@ class ReaderViewModel(
             all.sortedWith(compareBy<ChapterEntity> { it.dateUpload }.thenByDescending { it.sourceOrder })
         }
         val i = ordered.indexOfFirst { it.id == chapter.id }
-        _prevChapterId.value = ordered.getOrNull(i - 1)?.id?.takeIf { i > 0 }
-        _nextChapterId.value = if (i >= 0) ordered.getOrNull(i + 1)?.id else null
+        if (i < 0) {
+            _prevChapterId.value = null
+            _nextChapterId.value = null
+            return
+        }
+        val prefs = settingsRepo.settings.first()
+        // Numbers already read elsewhere, so "skip duplicates" can pass over a
+        // second scanlation of a chapter that has been finished.
+        val readNumbers = all.filter { it.read && it.number >= 0f }.map { it.number }.toSet()
+        val shown: Set<Long>? = if (prefs.skipFilteredChapters) {
+            // Chapters the entry's own filters hide are skipped too, so "next"
+            // matches what the chapter list shows.
+            chapterSettingsDao.observe(chapter.novelId).first().toSettings()
+                .takeIf { it.filters.active > 0 }
+                ?.applyTo(all)?.map { it.id }?.toSet()
+        } else null
+        fun skipped(c: ChapterEntity): Boolean =
+            (shown != null && c.id !in shown) ||
+            (prefs.skipReadChapters && c.read) ||
+                (prefs.skipDuplicateChapters && c.number >= 0f &&
+                    (c.number == chapter.number || c.number in readNumbers))
+        _prevChapterId.value = ordered.subList(0, i).lastOrNull { !skipped(it) }?.id
+        _nextChapterId.value = ordered.subList(i + 1, ordered.size).firstOrNull { !skipped(it) }?.id
     }
 
     fun downloadCurrent() {

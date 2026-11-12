@@ -43,6 +43,7 @@ object UpdateScheduler {
             .setRequiredNetworkType(
                 if (s.updateOnWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED,
             )
+            .setRequiresCharging(s.updateOnlyOnCharging)
             .build()
 
         when (s.updateSchedule) {
@@ -66,6 +67,7 @@ object UpdateScheduler {
                 .setRequiredNetworkType(
                     if (s.updateOnWifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED,
                 )
+                .setRequiresCharging(s.updateOnlyOnCharging)
                 .build()
             enqueueOneShot(WorkManager.getInstance(context), delayMillis(s), constraints)
         }

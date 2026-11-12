@@ -15,6 +15,7 @@ import com.opennovel.reader.source.SourceManager
 import com.opennovel.reader.source.model.SChapter
 import com.opennovel.reader.source.model.SNovel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * Single source of truth over library + chapters. Coordinates the local Room
@@ -40,6 +41,8 @@ class LibraryRepository(
     private val onNewChapters: suspend (List<Long>) -> Unit = {},
     /** Called when a chapter crosses the read threshold. */
     private val onChapterFinished: suspend (Long) -> Unit = {},
+    /** Category new library entries land in; <= 0 means leave uncategorised. */
+    private val defaultCategoryId: suspend () -> Long = { 0L },
 ) {
     fun observeLibrary(): Flow<List<NovelEntity>> = novelDao.observeLibrary()
 
@@ -112,8 +115,24 @@ class LibraryRepository(
      * indistinguishable from an up-to-date library — the user could not tell
      * whether the feature was working.
      */
-    suspend fun refreshLibrary(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): RefreshReport {
-        val novels = novelDao.getAllInLibrary()
+    suspend fun refreshLibrary(
+        options: UpdateOptions = UpdateOptions(),
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): RefreshReport {
+        var novels = novelDao.getAllInLibrary()
+        if (options.onlyNonCompleted) {
+            novels = novels.filter { it.status != com.opennovel.reader.source.model.NovelStatus.COMPLETED.name }
+        }
+        if (options.onlyStarted) {
+            val started = chapterDao.novelIdsWithReadChapters().toSet()
+            novels = novels.filter { it.id in started }
+        }
+        if (options.excludedCategoryIds.isNotEmpty()) {
+            val excluded = categoryDao.observeAllAssignments().first()
+                .filter { it.categoryId in options.excludedCategoryIds }
+                .map { it.novelId }.toSet()
+            novels = novels.filter { it.id !in excluded }
+        }
         var newChapters = 0
         var failed = 0
         var skipped = 0
@@ -200,6 +219,14 @@ class LibraryRepository(
 
     suspend fun addToLibrary(novelId: Long, inLibrary: Boolean) {
         novelDao.setInLibrary(novelId, inLibrary, System.currentTimeMillis())
+        if (inLibrary && categoryDao.categoryIdsForNovel(novelId).isEmpty()) {
+            val target = defaultCategoryId()
+            // Only apply a default that still exists; a deleted category would
+            // otherwise leave a dangling assignment.
+            if (target > 0 && categoryDao.count() > 0) {
+                runCatching { categoryDao.assign(NovelCategoryCrossRef(novelId, target)) }
+            }
+        }
     }
 
     /**
@@ -321,6 +348,13 @@ class LibraryRepository(
         recordHistory(novelId, chapterId)
     }
 }
+
+/** Which library entries a refresh sweep should skip. */
+data class UpdateOptions(
+    val onlyStarted: Boolean = false,
+    val onlyNonCompleted: Boolean = false,
+    val excludedCategoryIds: Set<Long> = emptySet(),
+)
 
 /** Result of refreshing one entry. */
 @JvmInline

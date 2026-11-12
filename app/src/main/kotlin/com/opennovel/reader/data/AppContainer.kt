@@ -11,6 +11,7 @@ import com.opennovel.reader.source.SourceManager
 import com.opennovel.reader.tts.TtsManager
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -24,6 +25,7 @@ class AppContainer(context: Context) {
     val appContext: Context = context.applicationContext
 
     val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(eu.kanade.tachiyomi.network.HostNetworkSettings.dns)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
@@ -55,13 +57,52 @@ class AppContainer(context: Context) {
         categoryDao = database.categoryDao(),
         sourceManager = sourceManager,
         incognito = { settingsRepository.settings.first().incognitoMode },
-        onNewChapters = { ids ->
-            if (settingsRepository.settings.first().downloadNewChapters) downloader.enqueue(ids)
-        },
-        onChapterFinished = { id ->
-            if (settingsRepository.settings.first().removeAfterRead) downloader.delete(id)
-        },
+        onNewChapters = { ids -> autoDownloadNew(ids) },
+        defaultCategoryId = { settingsRepository.settings.first().defaultCategoryId },
+        onChapterFinished = { id -> afterChapterFinished(id) },
     )
+
+    /** Auto-download for newly found chapters, honouring "only if nothing unread". */
+    private suspend fun autoDownloadNew(ids: List<Long>) {
+        val prefs = settingsRepository.settings.first()
+        if (!prefs.downloadNewChapters || ids.isEmpty()) return
+        if (prefs.downloadNewUnreadOnly) {
+            val novelId = database.chapterDao().getById(ids.first())?.novelId
+            if (novelId != null) {
+                val unread = libraryRepository.observeChapters(novelId).first()
+                    .any { !it.read && it.id !in ids }
+                // Already has a backlog: don't pile more storage on top of it.
+                if (unread) return
+            }
+        }
+        downloader.enqueue(ids)
+    }
+
+    /** Post-read housekeeping: delete-after-read, keep-last-N, and download-ahead. */
+    private suspend fun afterChapterFinished(id: Long) {
+        val prefs = settingsRepository.settings.first()
+        val chapter = database.chapterDao().getById(id) ?: return
+        val all = libraryRepository.observeChapters(chapter.novelId).first()
+            .sortedWith(compareBy({ it.number }, { it.dateUpload }))
+        fun deletable(c: com.opennovel.reader.data.db.ChapterEntity) =
+            c.downloaded && (!c.bookmark || prefs.removeBookmarkedChapters)
+        if (prefs.removeAfterRead) {
+            if (deletable(chapter)) downloader.delete(id)
+        } else if (prefs.keepReadChapters > 0) {
+            val readDownloaded = all.filter { it.read && it.downloaded }
+            val surplus = readDownloaded.size - prefs.keepReadChapters
+            if (surplus > 0) {
+                readDownloaded.take(surplus).filter { deletable(it) }.forEach { downloader.delete(it.id) }
+            }
+        }
+        if (prefs.downloadAhead > 0) {
+            val idx = all.indexOfFirst { it.id == id }
+            if (idx >= 0) {
+                val ahead = all.drop(idx + 1).filter { !it.downloaded }.take(prefs.downloadAhead).map { it.id }
+                if (ahead.isNotEmpty()) downloader.enqueue(ahead)
+            }
+        }
+    }
 
     /** Reads Manatan's own backup format, which is not Tachiyomi's. */
     val manatanImporter = com.opennovel.reader.backup.ManatanBackupImporter(
@@ -125,6 +166,17 @@ class AppContainer(context: Context) {
     val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager, context.applicationContext)
 
     init {
+        // Keep the live network preferences (User-Agent, DNS-over-HTTPS) in step with settings.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+            .launch {
+                settingsRepository.settings.collect {
+                    eu.kanade.tachiyomi.network.HostNetworkSettings.userAgent = it.userAgent
+                    eu.kanade.tachiyomi.network.HostNetworkSettings.dohUrl = it.dnsOverHttps.url
+                    com.opennovel.reader.ui.DateDisplay.relative = it.relativeTimestamps
+                    com.opennovel.reader.ui.DateDisplay.pattern = it.dateFormat
+                }
+            }
+
         // Provide the host singletons that Tachiyomi/Manatan extensions resolve via
         // Injekt (NetworkHelper + app Context) before any extension is loaded.
         com.opennovel.reader.extension.ExtensionRuntime.init(context.applicationContext)

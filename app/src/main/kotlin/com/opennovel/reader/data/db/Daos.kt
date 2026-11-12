@@ -85,6 +85,9 @@ interface ChapterDao {
      * Reading progress that never un-reads a chapter: re-opening a finished
      * chapter and scrolling from the top must not flip it back to unread.
      */
+    @Query("SELECT DISTINCT novelId FROM chapters WHERE read = 1")
+    suspend fun novelIdsWithReadChapters(): List<Long>
+
     @Query("UPDATE chapters SET read = (read OR :read), lastReadOffset = :offset WHERE id = :id")
     suspend fun recordProgress(id: Long, read: Boolean, offset: Float)
 

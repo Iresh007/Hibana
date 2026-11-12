@@ -275,8 +275,8 @@ fun LibraryScreen(
                         if (settings.libraryDisplayMode == LibraryDisplayMode.LIST) {
                             NovelListRow(
                                 novel = novel,
-                                unread = badge?.unread ?: 0,
-                                downloaded = badge?.downloaded ?: 0,
+                                unread = if (settings.showUnreadBadge) badge?.unread ?: 0 else 0,
+                                downloaded = if (settings.showDownloadedBadge) badge?.downloaded ?: 0 else 0,
                                 total = badge?.total ?: 0,
                                 showBadges = settings.showLibraryBadges,
                                 selected = novel.id in selection,
@@ -287,8 +287,8 @@ fun LibraryScreen(
                             NovelCover(
                                 novel = novel,
                                 selected = novel.id in selection,
-                                unread = badge?.unread ?: 0,
-                                downloaded = badge?.downloaded ?: 0,
+                                unread = if (settings.showUnreadBadge) badge?.unread ?: 0 else 0,
+                                downloaded = if (settings.showDownloadedBadge) badge?.downloaded ?: 0 else 0,
                                 total = badge?.total ?: 0,
                                 showBadges = settings.showLibraryBadges,
                                 // Long-press starts selection; once in selection
