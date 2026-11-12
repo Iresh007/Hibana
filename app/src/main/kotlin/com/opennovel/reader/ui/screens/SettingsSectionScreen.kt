@@ -521,7 +521,7 @@ private fun BrowseSection(factory: ViewModelProvider.Factory, onOpenRepos: () ->
     PrefSection("Sources") {
         SwitchRow(
             title = "Include NSFW sources",
-            subtitle = "Show sources flagged 18+ in Browse and global search",
+            subtitle = "Show sources from extensions flagged 18+ in the Sources and Extensions lists",
             checked = s.includeNsfwSources,
             onCheckedChange = extra::setIncludeNsfwSources,
         )
