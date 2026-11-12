@@ -15,6 +15,7 @@ import com.opennovel.reader.source.SourceManager
 import com.opennovel.reader.source.model.SChapter
 import com.opennovel.reader.source.model.SNovel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 
 /**
  * Single source of truth over library + chapters. Coordinates the local Room
@@ -112,8 +113,24 @@ class LibraryRepository(
      * indistinguishable from an up-to-date library — the user could not tell
      * whether the feature was working.
      */
-    suspend fun refreshLibrary(onProgress: (done: Int, total: Int) -> Unit = { _, _ -> }): RefreshReport {
-        val novels = novelDao.getAllInLibrary()
+    suspend fun refreshLibrary(
+        options: UpdateOptions = UpdateOptions(),
+        onProgress: (done: Int, total: Int) -> Unit = { _, _ -> },
+    ): RefreshReport {
+        var novels = novelDao.getAllInLibrary()
+        if (options.onlyNonCompleted) {
+            novels = novels.filter { it.status != com.opennovel.reader.source.model.NovelStatus.COMPLETED.name }
+        }
+        if (options.onlyStarted) {
+            val started = chapterDao.novelIdsWithReadChapters().toSet()
+            novels = novels.filter { it.id in started }
+        }
+        if (options.excludedCategoryIds.isNotEmpty()) {
+            val excluded = categoryDao.observeAllAssignments().first()
+                .filter { it.categoryId in options.excludedCategoryIds }
+                .map { it.novelId }.toSet()
+            novels = novels.filter { it.id !in excluded }
+        }
         var newChapters = 0
         var failed = 0
         var skipped = 0
@@ -321,6 +338,13 @@ class LibraryRepository(
         recordHistory(novelId, chapterId)
     }
 }
+
+/** Which library entries a refresh sweep should skip. */
+data class UpdateOptions(
+    val onlyStarted: Boolean = false,
+    val onlyNonCompleted: Boolean = false,
+    val excludedCategoryIds: Set<Long> = emptySet(),
+)
 
 /** Result of refreshing one entry. */
 @JvmInline

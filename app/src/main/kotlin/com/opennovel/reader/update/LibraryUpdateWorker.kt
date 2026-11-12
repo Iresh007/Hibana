@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.opennovel.reader.NovelReaderApp
+import kotlinx.coroutines.flow.first
 
 /**
  * Refreshes every library novel's chapter list in the background.
@@ -27,10 +28,17 @@ class LibraryUpdateWorker(
         val app = applicationContext as? NovelReaderApp ?: return Result.success()
         val notifier = LibraryUpdateNotifier(applicationContext)
         return try {
-            val report = app.container.libraryRepository.refreshLibrary { done, total ->
+            val s = app.container.settingsRepository.settings.first()
+            val options = com.opennovel.reader.data.UpdateOptions(
+                onlyStarted = s.updateOnlyStarted,
+                onlyNonCompleted = s.updateOnlyNonCompleted,
+                excludedCategoryIds = s.updateExcludedCategories
+                    .split(',').mapNotNull { it.trim().toLongOrNull() }.toSet(),
+            )
+            val report = app.container.libraryRepository.refreshLibrary(options) { done, total ->
                 notifier.progress(done, total)
             }
-            notifier.result(report)
+            notifier.result(report, hideContent = s.hideNotificationContent)
             Result.success()
         } catch (t: Throwable) {
             // Clear the progress notification rather than leaving an ongoing one

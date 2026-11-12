@@ -58,7 +58,7 @@ class LibraryUpdateNotifier(private val context: Context) {
      * without a heads-up, so a working schedule is visible without becoming
      * noise every six hours.
      */
-    fun result(report: RefreshReport) {
+    fun result(report: RefreshReport, hideContent: Boolean = false) {
         manager.cancel(PROGRESS_ID)
         if (!allowed) return
 
@@ -66,8 +66,13 @@ class LibraryUpdateNotifier(private val context: Context) {
         val notification = NotificationCompat.Builder(context, NovelReaderApp.LIBRARY_RESULT_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_notify_sync)
             .setContentTitle(if (foundSomething) "New chapters" else "Library up to date")
-            .setContentText(report.summary())
-            .setStyle(NotificationCompat.BigTextStyle().bigText(report.summary()))
+            // Hidden content keeps the notification generic so nothing about the
+            // library shows on a lock screen or in a screen share.
+            .setContentText(if (hideContent) "Open Hibana for details" else report.summary())
+            .apply { if (!hideContent) setStyle(NotificationCompat.BigTextStyle().bigText(report.summary())) }
+            .setVisibility(
+                if (hideContent) NotificationCompat.VISIBILITY_PRIVATE else NotificationCompat.VISIBILITY_PUBLIC,
+            )
             .setSilent(!foundSomething)
             .setAutoCancel(true)
             .setContentIntent(openApp())
