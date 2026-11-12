@@ -57,6 +57,12 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -149,7 +155,12 @@ fun ReaderScreen(
     val pagedManga = isManga && paged
     val rtl = settings.readingMode == ReadingMode.PAGED_RTL
 
-    LaunchedEffect(chapterId) { vm.load(chapterId) }
+    // The chapter on screen. Starts as the one navigated to and moves with the
+    // previous/next buttons without leaving the reader.
+    var activeId by remember { mutableStateOf(chapterId) }
+    val prevId by vm.prevChapterId.collectAsStateWithLifecycle()
+    val nextId by vm.nextChapterId.collectAsStateWithLifecycle()
+    LaunchedEffect(activeId) { vm.load(activeId) }
 
     // Auto-scroll to the paragraph TTS is currently speaking (text mode only;
     // in manga mode the indices refer to OCR lines, not pages).
@@ -178,10 +189,10 @@ fun ReaderScreen(
     }
     val position = if (pagedManga) pagerState.currentPage else lastVisible
     val resumeOffset by vm.resumeOffset.collectAsStateWithLifecycle()
-    var resumed by remember(chapterId) { mutableStateOf(false) }
+    var resumed by remember(activeId) { mutableStateOf(false) }
 
     // Scroll back to where the user left off, once the content has arrived.
-    LaunchedEffect(chapterId, paragraphCount, pageUrls.size, resumeOffset) {
+    LaunchedEffect(activeId, paragraphCount, pageUrls.size, resumeOffset) {
         val total = if (isManga) pageUrls.size else paragraphCount
         if (resumed || total == 0) return@LaunchedEffect
         resumed = true
@@ -264,6 +275,12 @@ fun ReaderScreen(
                         }
                     },
                     actions = {
+                        IconButton(onClick = { prevId?.let { activeId = it } }, enabled = prevId != null) {
+                            Icon(Icons.Filled.SkipPrevious, contentDescription = "Previous chapter")
+                        }
+                        IconButton(onClick = { nextId?.let { activeId = it } }, enabled = nextId != null) {
+                            Icon(Icons.Filled.SkipNext, contentDescription = "Next chapter")
+                        }
                         IconButton(onClick = { showSettings = true }) {
                             Icon(Icons.Filled.Tune, contentDescription = "Reader settings")
                         }
@@ -350,6 +367,7 @@ fun ReaderScreen(
                         mode = settings.readingMode,
                         listState = listState,
                         pagerState = pagerState,
+                        doubleTapZoom = settings.doubleTapZoom,
                     )
                 }
 
@@ -713,6 +731,7 @@ private fun MangaPages(
     mode: ReadingMode,
     listState: androidx.compose.foundation.lazy.LazyListState,
     pagerState: PagerState,
+    doubleTapZoom: Boolean = true,
 ) {
     when (mode) {
         ReadingMode.WEBTOON, ReadingMode.CONTINUOUS_VERTICAL -> {
@@ -741,23 +760,73 @@ private fun MangaPages(
                     if (mode == ReadingMode.PAGED_RTL) LayoutDirection.Rtl else LayoutDirection.Ltr,
             ) {
                 HorizontalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                    PagedImage(pageUrls[page], page)
+                    PagedImage(pageUrls[page], page, doubleTapZoom)
                 }
             }
         }
 
         ReadingMode.PAGED_VERTICAL -> {
             VerticalPager(state = pagerState, modifier = Modifier.fillMaxSize()) { page ->
-                PagedImage(pageUrls[page], page)
+                PagedImage(pageUrls[page], page, doubleTapZoom)
             }
         }
     }
 }
 
-/** A single page fitted to the screen, as paged modes expect. */
+/**
+ * A single page fitted to the screen, as paged modes expect, with pinch and
+ * double-tap zoom. A single finger only pans once zoomed in, so at normal size
+ * swipes still reach the pager and turn the page.
+ */
 @Composable
-private fun PagedImage(url: String, index: Int) {
-    Box(Modifier.fillMaxSize(), Alignment.Center) {
+private fun PagedImage(url: String, index: Int, doubleTapZoom: Boolean = true) {
+    var scale by remember(url) { mutableStateOf(1f) }
+    var offset by remember(url) { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var size by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
+
+    fun clamp(o: androidx.compose.ui.geometry.Offset, s: Float): androidx.compose.ui.geometry.Offset {
+        val maxX = size.width * (s - 1f) / 2f
+        val maxY = size.height * (s - 1f) / 2f
+        return androidx.compose.ui.geometry.Offset(o.x.coerceIn(-maxX, maxX), o.y.coerceIn(-maxY, maxY))
+    }
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .onSizeChanged { size = it }
+            .pointerInput(url) {
+                androidx.compose.foundation.gestures.awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        val pinching = event.changes.size > 1
+                        if (pinching || scale > 1f) {
+                            val zoom = event.calculateZoom()
+                            val pan = event.calculatePan()
+                            scale = (scale * zoom).coerceIn(1f, 5f)
+                            offset = if (scale <= 1f) androidx.compose.ui.geometry.Offset.Zero
+                            else clamp(offset + pan, scale)
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+            .then(
+                if (doubleTapZoom) Modifier.pointerInput(url) {
+                    detectTapGestures(onDoubleTap = {
+                        if (scale > 1f) { scale = 1f; offset = androidx.compose.ui.geometry.Offset.Zero }
+                        else scale = 2.5f
+                    })
+                } else Modifier,
+            )
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+                translationX = offset.x
+                translationY = offset.y
+            },
+        Alignment.Center,
+    ) {
         AsyncImage(
             model = url,
             contentDescription = "Page ${index + 1}",

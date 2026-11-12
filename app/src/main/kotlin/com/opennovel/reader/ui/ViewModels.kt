@@ -1484,6 +1484,12 @@ class ReaderViewModel(
      * scroll back to where the user stopped. 0 for a fresh or already-finished
      * chapter (a finished one should reopen at the top).
      */
+    /** Neighbouring chapters of the open one in reading order, or null at the ends. */
+    private val _prevChapterId = MutableStateFlow<Long?>(null)
+    val prevChapterId: StateFlow<Long?> = _prevChapterId.asStateFlow()
+    private val _nextChapterId = MutableStateFlow<Long?>(null)
+    val nextChapterId: StateFlow<Long?> = _nextChapterId.asStateFlow()
+
     private val _resumeOffset = MutableStateFlow(0f)
     val resumeOffset: StateFlow<Float> = _resumeOffset.asStateFlow()
 
@@ -1521,11 +1527,14 @@ class ReaderViewModel(
     fun load(chapterId: Long) {
         _loading.value = true; _error.value = null
         _pageUrls.value = emptyList()
+        _content.value = null
+        tts.stop()
         viewModelScope.launch {
             val chapter = repo.getChapter(chapterId)
             current = chapter
             if (chapter == null) { _error.value = "Chapter not found"; _loading.value = false; return@launch }
             _resumeOffset.value = if (chapter.read) 0f else chapter.lastReadOffset
+            updateNeighbours(chapter)
 
             // Pick the section whose type/layout settings apply to this entry.
             // An entry of unknown type keeps whatever section is active.
@@ -1565,6 +1574,24 @@ class ReaderViewModel(
             }
             _loading.value = false
         }
+    }
+
+    /**
+     * Finds the chapters either side of [chapter]. Chapter numbers decide the
+     * order when the source provides them; otherwise upload date, then the
+     * source's own order, so a source with unnumbered chapters still navigates.
+     */
+    private suspend fun updateNeighbours(chapter: ChapterEntity) {
+        val all = repo.observeChapters(chapter.novelId).first()
+        val numbered = all.count { it.number >= 0f } >= all.size * 0.8
+        val ordered = if (numbered) {
+            all.sortedWith(compareBy<ChapterEntity> { it.number }.thenBy { it.dateUpload })
+        } else {
+            all.sortedWith(compareBy<ChapterEntity> { it.dateUpload }.thenByDescending { it.sourceOrder })
+        }
+        val i = ordered.indexOfFirst { it.id == chapter.id }
+        _prevChapterId.value = ordered.getOrNull(i - 1)?.id?.takeIf { i > 0 }
+        _nextChapterId.value = if (i >= 0) ordered.getOrNull(i + 1)?.id else null
     }
 
     fun downloadCurrent() {
