@@ -9,7 +9,6 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.getValue
@@ -17,10 +16,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.opennovel.reader.ui.RootNav
 import com.opennovel.reader.ui.SettingsViewModel
+import com.opennovel.reader.ui.AppLock
 import com.opennovel.reader.ui.VmFactory
+import androidx.compose.foundation.layout.fillMaxSize
+import kotlinx.coroutines.flow.first
 import com.opennovel.reader.ui.theme.OpenNovelTheme
 
-class MainActivity : ComponentActivity() {
+class MainActivity : androidx.fragment.app.FragmentActivity() {
+    private var backgroundedAt = 0L
+    private val locked = androidx.compose.runtime.mutableStateOf(true)
+    private var lockPrompting = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -51,8 +57,52 @@ class MainActivity : ComponentActivity() {
             val settingsVm: SettingsViewModel = viewModel(factory = factory)
             val settings by settingsVm.settings.collectAsStateWithLifecycle()
             OpenNovelTheme(themeMode = settings.themeMode, dynamicColor = settings.dynamicColor, appTheme = settings.appTheme) {
-                RootNav(factory = factory)
+                val needsUnlock = settings.appLockEnabled && locked.value &&
+                    AppLock.canAuthenticate(this@MainActivity, settings.lockWithBiometrics)
+                if (needsUnlock) {
+                    androidx.compose.foundation.layout.Box(
+                        androidx.compose.ui.Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center,
+                    ) {
+                        androidx.compose.material3.Button(onClick = { requestUnlock(settings.lockWithBiometrics) }) {
+                            androidx.compose.material3.Text("Unlock Hibana")
+                        }
+                    }
+                    androidx.compose.runtime.LaunchedEffect(Unit) { requestUnlock(settings.lockWithBiometrics) }
+                } else {
+                    RootNav(factory = factory)
+                }
             }
+        }
+    }
+
+    private fun requestUnlock(allowBiometrics: Boolean) {
+        if (lockPrompting) return
+        lockPrompting = true
+        AppLock.prompt(this, allowBiometrics) { ok ->
+            lockPrompting = false
+            if (ok) locked.value = false
+        }
+    }
+
+    override fun onStop() {
+        super.onStop()
+        backgroundedAt = System.currentTimeMillis()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (backgroundedAt == 0L) return
+        val container = (application as NovelReaderApp).container
+        lifecycleScope.launch {
+            val prefs = container.settingsRepository.settings.first()
+            val away = System.currentTimeMillis() - backgroundedAt
+            val relock = when (prefs.lockTimeout) {
+                com.opennovel.reader.data.LockTimeout.NEVER -> false
+                com.opennovel.reader.data.LockTimeout.ALWAYS -> true
+                else -> away >= prefs.lockTimeout.minutes * 60_000L
+            }
+            if (prefs.appLockEnabled && relock) locked.value = true
         }
     }
 }

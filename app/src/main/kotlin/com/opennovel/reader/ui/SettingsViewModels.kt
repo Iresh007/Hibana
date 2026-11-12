@@ -61,6 +61,8 @@ class SettingsSectionViewModel(private val repo: SettingsRepository) : ViewModel
     fun setAutoUpdateExtensions(v: Boolean) = viewModelScope.launch { repo.setAutoUpdateExtensions(v) }
     fun setAutoBackupFrequency(v: AutoBackupFrequency) =
         viewModelScope.launch { repo.setAutoBackupFrequency(v) }
+    fun setLockWithBiometrics(v: Boolean) = viewModelScope.launch { repo.setLockWithBiometrics(v) }
+    fun setLockTimeout(v: com.opennovel.reader.data.LockTimeout) = viewModelScope.launch { repo.setLockTimeout(v) }
     fun setAppLockEnabled(v: Boolean) = viewModelScope.launch { repo.setAppLockEnabled(v) }
     fun setSecureScreen(v: Boolean) = viewModelScope.launch { repo.setSecureScreen(v) }
     fun setIncognitoMode(v: Boolean) = viewModelScope.launch { repo.setIncognitoMode(v) }

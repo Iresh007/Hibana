@@ -666,6 +666,21 @@ private fun PrivacySection(factory: ViewModelProvider.Factory) {
             checked = s.appLockEnabled,
             onCheckedChange = extra::setAppLockEnabled,
         )
+        if (s.appLockEnabled) {
+            SwitchRow(
+                title = "Allow biometrics",
+                subtitle = "Fingerprint or face as well as PIN/pattern (Android 11+ can require the PIN only)",
+                checked = s.lockWithBiometrics,
+                onCheckedChange = extra::setLockWithBiometrics,
+            )
+            ChipRow(
+                options = com.opennovel.reader.data.LockTimeout.entries,
+                selected = s.lockTimeout,
+                label = { it.label },
+                onSelect = extra::setLockTimeout,
+            )
+            Hint("How long Hibana can stay in the background before asking again.")
+        }
     }
 
     PrefSection("Screen") {
