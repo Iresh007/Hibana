@@ -34,9 +34,9 @@ data class QueuedDownload(
  * Downloads chapter text to app storage for offline reading, driven by a single
  * observable queue.
  *
- * The queue is drained by one worker at a time rather than fanning out: sources
- * are third-party sites and hammering them with parallel requests is the fastest
- * way to get rate-limited or banned. Completed items leave the queue shortly
+ * The queue is drained by a small, user-configurable number of lanes (default 2):
+ * sources are third-party sites and hammering them with parallel requests is the
+ * fastest way to get rate-limited or banned. Completed items leave the queue shortly
  * after finishing, so the queue always reads as "what is still pending".
  */
 class Downloader(
@@ -44,6 +44,8 @@ class Downloader(
     private val novelDao: NovelDao,
     private val chapterDao: ChapterDao,
     private val sourceManager: SourceManager,
+    /** How many chapters may download at once; read each time the queue drains. */
+    private val concurrency: suspend () -> Int = { 1 },
 ) {
     private val _progress = MutableStateFlow<Map<Long, DownloadState>>(emptyMap())
     val progress: StateFlow<Map<Long, DownloadState>> = _progress.asStateFlow()
@@ -100,8 +102,13 @@ class Downloader(
         _queue.value = _queue.value.filterNot { it.chapterId == chapterId }
         setState(chapterId, DownloadState.NONE)
         if (wasRunning) {
+            // Cancelling tears down every lane; the other in-flight chapters
+            // go back to the queue so the restarted worker picks them up.
             worker?.cancel()
             worker = null
+            _queue.value = _queue.value.map {
+                if (it.state == QueueState.DOWNLOADING) it.copy(state = QueueState.QUEUED) else it
+            }
             scope.launch { startWorker() }
         }
     }
@@ -114,18 +121,29 @@ class Downloader(
 
     private suspend fun startWorker() = workerLock.withLock {
         if (worker?.isActive == true) return@withLock
+        val lanes = runCatching { concurrency() }.getOrDefault(1).coerceIn(1, 6)
         worker = scope.launch {
-            while (true) {
-                val next = _queue.value.firstOrNull { it.state == QueueState.QUEUED } ?: break
-                updateQueue(next.chapterId) { it.copy(state = QueueState.DOWNLOADING) }
-                val ok = fetch(next.chapterId).isSuccess
-                if (ok) {
-                    updateQueue(next.chapterId) { it.copy(state = QueueState.DONE) }
-                    // Brief pause so a completed row is visible before it goes.
-                    delay(600)
-                    _queue.value = _queue.value.filterNot { it.chapterId == next.chapterId }
-                } else {
-                    updateQueue(next.chapterId) { it.copy(state = QueueState.FAILED) }
+            // Several lanes pull from the same queue; claiming is serialised so
+            // two lanes can never take the same chapter.
+            val claim = Mutex()
+            List(lanes) {
+                launch {
+                    while (true) {
+                        val next = claim.withLock {
+                            _queue.value.firstOrNull { it.state == QueueState.QUEUED }?.also { item ->
+                                updateQueue(item.chapterId) { it.copy(state = QueueState.DOWNLOADING) }
+                            }
+                        } ?: break
+                        val ok = fetch(next.chapterId).isSuccess
+                        if (ok) {
+                            updateQueue(next.chapterId) { it.copy(state = QueueState.DONE) }
+                            // Brief pause so a completed row is visible before it goes.
+                            delay(600)
+                            _queue.value = _queue.value.filterNot { it.chapterId == next.chapterId }
+                        } else {
+                            updateQueue(next.chapterId) { it.copy(state = QueueState.FAILED) }
+                        }
+                    }
                 }
             }
         }

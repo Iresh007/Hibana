@@ -80,7 +80,7 @@ class VmFactory(private val c: AppContainer) : ViewModelProvider.Factory {
         modelClass.isAssignableFrom(ExtensionsViewModel::class.java) ->
             ExtensionsViewModel(c.extensionManager, c.extensionLoaders, c.sourceManager, c.extensionRepoStore, c.repoIndexParser, c.extensionTrustStore, c.appContext)
         modelClass.isAssignableFrom(ReaderViewModel::class.java) ->
-            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository)
+            ReaderViewModel(c.libraryRepository, c.sourceManager, c.downloader, c.ttsManager, c.mangaPageOcr, c.translationManager, c.settingsRepository, c.sectionRepository)
         else -> error("Unknown ViewModel ${modelClass.name}")
     } as T
 }
@@ -251,8 +251,24 @@ class LibraryViewModel(
     val activeSection: StateFlow<AppSection> =
         sections.activeSection.stateIn(viewModelScope, SharingStarted.Eagerly, AppSection.COMIC)
 
+    private val sectionRepo = sections
+
+    /**
+     * Global settings with the per-section library fields applied on top.
+     * Settings > Library writes the per-section store, so the grid has to read it
+     * too or those controls do nothing.
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
     val settings: StateFlow<ReaderSettings> =
-        settingsRepository.settings.stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
+        combine(
+            settingsRepository.settings,
+            activeSection.flatMapLatest { sectionRepo.settings(it) },
+        ) { global, section ->
+            global.copy(
+                libraryDisplayMode = section.libraryDisplayMode,
+                showLibraryBadges = section.showLibraryBadges,
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
 
     /** Unread/downloaded tallies keyed by novel id, for cover badges. */
     val counts: StateFlow<Map<Long, com.opennovel.reader.data.db.NovelCounts>> =
@@ -451,10 +467,10 @@ class LibraryViewModel(
     fun selectAllVisible() { _selection.value = library.value.map { it.id }.toSet() }
 
     fun setLibraryDisplayMode(mode: com.opennovel.reader.data.LibraryDisplayMode) =
-        viewModelScope.launch { settingsRepository.setLibraryDisplayMode(mode) }
+        viewModelScope.launch { sectionRepo.setLibraryDisplayMode(activeSection.value, mode) }
 
     fun setShowLibraryBadges(show: Boolean) =
-        viewModelScope.launch { settingsRepository.setShowLibraryBadges(show) }
+        viewModelScope.launch { sectionRepo.setShowLibraryBadges(activeSection.value, show) }
 
     // --- category management ---
 
@@ -1141,6 +1157,21 @@ class ExtensionsViewModel(
                     }
                     _status.value = if (ok) "Installed ${item.name}" else "Failed to install ${item.name}"
                 }
+                com.opennovel.reader.extension.Ecosystem.MIHON,
+                com.opennovel.reader.extension.Ecosystem.MANATAN -> {
+                    // Downloaded to a private read-only copy and loaded in-process;
+                    // it still needs the user's explicit trust before it runs.
+                    _status.value = "Downloading ${item.name}…"
+                    val result = extensionManager.installFromStore(item)
+                    refreshInstalled()
+                    refreshCatalogue()
+                    _status.value = when (result) {
+                        is com.opennovel.reader.extension.ExtensionInstaller.Result.Installed ->
+                            "Installed ${item.name} — review and trust it to enable its sources"
+                        is com.opennovel.reader.extension.ExtensionInstaller.Result.Failed ->
+                            "Failed to install ${item.name}: ${result.reason}"
+                    }
+                }
                 else -> {
                     // Hand the APK URL to the browser/downloader; Android's
                     // installer takes over from there.
@@ -1247,9 +1278,9 @@ class ExtensionsViewModel(
     /** Mihon's "revoke all unknown extensions". */
     fun revokeAllTrust() {
         viewModelScope.launch {
-            trustStore.revokeAll()
+            extensionManager.revokeAllTrust(trustStore)
             refreshInstalled()
-            _status.value = "All extension trust revoked — restart to fully unload"
+            _status.value = "All extension trust revoked"
         }
     }
 
@@ -1414,17 +1445,26 @@ class ReaderViewModel(
     private val ocr: com.opennovel.reader.tts.MangaPageOcr,
     private val translator: com.opennovel.reader.tts.TranslationManager,
     private val settingsRepo: SettingsRepository,
+    private val sectionRepo: SectionRepository,
 ) : ViewModel() {
 
+    /**
+     * The section of the chapter being read. Type and layout settings are stored
+     * per section (Settings > Reader edits those), so the reader must read the
+     * same store or its settings screen does nothing.
+     */
+    private val section = MutableStateFlow(AppSection.COMIC)
+
     // Mirrors of the Settings screen controls, so the in-reader sheet can adjust
-    // type and layout while the result is visible behind it.
-    fun setFontScale(v: Float) = viewModelScope.launch { settingsRepo.setFontScale(v) }
-    fun setLineSpacing(v: Float) = viewModelScope.launch { settingsRepo.setLineSpacing(v) }
-    fun setFontFamily(v: String) = viewModelScope.launch { settingsRepo.setFontFamily(v) }
+    // type and layout while the result is visible behind it. They write the same
+    // per-section store Settings does.
+    fun setFontScale(v: Float) = viewModelScope.launch { sectionRepo.setFontScale(section.value, v) }
+    fun setLineSpacing(v: Float) = viewModelScope.launch { sectionRepo.setLineSpacing(section.value, v) }
+    fun setFontFamily(v: String) = viewModelScope.launch { sectionRepo.setFontFamily(section.value, v) }
     fun setThemeMode(v: ThemeMode) = viewModelScope.launch { settingsRepo.setThemeMode(v) }
-    fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { settingsRepo.setKeepScreenOn(v) }
+    fun setKeepScreenOn(v: Boolean) = viewModelScope.launch { sectionRepo.setKeepScreenOn(section.value, v) }
     fun setReadingMode(v: com.opennovel.reader.data.ReadingMode) =
-        viewModelScope.launch { settingsRepo.setReadingMode(v) }
+        viewModelScope.launch { sectionRepo.setReadingMode(section.value, v) }
 
     private val _content = MutableStateFlow<ChapterText?>(null)
     val content: StateFlow<ChapterText?> = _content.asStateFlow()
@@ -1435,10 +1475,30 @@ class ReaderViewModel(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    /**
+     * Fraction of the chapter already read when it was opened, so the reader can
+     * scroll back to where the user stopped. 0 for a fresh or already-finished
+     * chapter (a finished one should reopen at the top).
+     */
+    private val _resumeOffset = MutableStateFlow(0f)
+    val resumeOffset: StateFlow<Float> = _resumeOffset.asStateFlow()
+
     val ttsState: StateFlow<TtsState> = tts.state
 
-    val settings = settingsRepo.settings
-        .stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val settings: StateFlow<ReaderSettings> =
+        combine(
+            settingsRepo.settings,
+            section.flatMapLatest { sectionRepo.settings(it) },
+        ) { global, perSection ->
+            global.copy(
+                fontScale = perSection.fontScale,
+                lineSpacing = perSection.lineSpacing,
+                fontFamily = perSection.fontFamily,
+                readingMode = perSection.readingMode,
+                keepScreenOn = perSection.keepScreenOn,
+            )
+        }.stateIn(viewModelScope, SharingStarted.Eagerly, ReaderSettings())
 
     /** Page images when the chapter comes from a manga source; empty for novels. */
     private val _pageUrls = MutableStateFlow<List<String>>(emptyList())
@@ -1461,6 +1521,12 @@ class ReaderViewModel(
             val chapter = repo.getChapter(chapterId)
             current = chapter
             if (chapter == null) { _error.value = "Chapter not found"; _loading.value = false; return@launch }
+            _resumeOffset.value = if (chapter.read) 0f else chapter.lastReadOffset
+
+            // Pick the section whose type/layout settings apply to this entry.
+            // An entry of unknown type keeps whatever section is active.
+            val type = repo.getNovel(chapter.novelId)?.contentType?.let { ContentType.from(it) }
+            AppSection.entries.firstOrNull { it.contentType == type }?.let { section.value = it }
 
             // Record the open immediately. Waiting for a scroll event meant a
             // chapter that fits on one screen, or one the user backed out of,

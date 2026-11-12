@@ -1,64 +1,226 @@
+// Copied unmodified from mihonapp/mihon v0.21.3 (Apache License 2.0, https://github.com/mihonapp/mihon).
 package eu.kanade.tachiyomi.source.online
 
-import eu.kanade.tachiyomi.network.asJsoup
 import eu.kanade.tachiyomi.source.model.MangasPage
 import eu.kanade.tachiyomi.source.model.Page
 import eu.kanade.tachiyomi.source.model.SChapter
 import eu.kanade.tachiyomi.source.model.SManga
+import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Response
 import org.jsoup.nodes.Document
 import org.jsoup.nodes.Element
 
 /**
- * Faithful host runtime of the Tachiyomi extensions-lib `ParsedHttpSource`. Turns
- * the HTML parse hooks into CSS-selector methods extensions implement.
+ * A simple implementation for sources from a website using Jsoup, an HTML parser.
  */
+@Deprecated(
+    message = "In most cases sources only require a subset of the methods from this class. " +
+        "Source developers should make their own implementation according to their needs.",
+)
 abstract class ParsedHttpSource : HttpSource() {
 
-    protected abstract fun popularMangaSelector(): String
-    protected abstract fun popularMangaFromElement(element: Element): SManga
-    protected abstract fun popularMangaNextPageSelector(): String?
-
+    /**
+     * Parses the response from the site and returns a [MangasPage] object.
+     *
+     * @param response the response from the site.
+     */
+    @Deprecated(
+        "The helper functions are inherently limiting and hides the underlying implementation. Source developers should make their own implementation according to their needs.",
+    )
     override fun popularMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select(popularMangaSelector()).map { popularMangaFromElement(it) }
-        val hasNext = popularMangaNextPageSelector()?.let { document.selectFirst(it) != null } ?: false
-        return MangasPage(mangas, hasNext)
+
+        val mangas = document.select(popularMangaSelector()).map { element ->
+            popularMangaFromElement(element)
+        }
+
+        val hasNextPage = popularMangaNextPageSelector()?.let { selector ->
+            document.select(selector).first()
+        } != null
+
+        return MangasPage(mangas, hasNextPage)
     }
 
-    protected abstract fun searchMangaSelector(): String
-    protected abstract fun searchMangaFromElement(element: Element): SManga
-    protected abstract fun searchMangaNextPageSelector(): String?
+    /**
+     * Returns the Jsoup selector that returns a list of [Element] corresponding to each manga.
+     */
+    protected abstract fun popularMangaSelector(): String
 
+    /**
+     * Returns a manga from the given [element]. Most sites only show the title and the url, it's
+     * totally fine to fill only those two values.
+     *
+     * @param element an element obtained from [popularMangaSelector].
+     */
+    protected abstract fun popularMangaFromElement(element: Element): SManga
+
+    /**
+     * Returns the Jsoup selector that returns the <a> tag linking to the next page, or null if
+     * there's no next page.
+     */
+    protected abstract fun popularMangaNextPageSelector(): String?
+
+    /**
+     * Parses the response from the site and returns a [MangasPage] object.
+     *
+     * @param response the response from the site.
+     */
+    @Deprecated(
+        "The helper functions are inherently limiting and hides the underlying implementation. Source developers should make their own implementation according to their needs.",
+    )
     override fun searchMangaParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select(searchMangaSelector()).map { searchMangaFromElement(it) }
-        val hasNext = searchMangaNextPageSelector()?.let { document.selectFirst(it) != null } ?: false
-        return MangasPage(mangas, hasNext)
+
+        val mangas = document.select(searchMangaSelector()).map { element ->
+            searchMangaFromElement(element)
+        }
+
+        val hasNextPage = searchMangaNextPageSelector()?.let { selector ->
+            document.select(selector).first()
+        } != null
+
+        return MangasPage(mangas, hasNextPage)
     }
 
-    protected open fun latestUpdatesSelector(): String = throw UnsupportedOperationException("Not used")
-    protected open fun latestUpdatesFromElement(element: Element): SManga = throw UnsupportedOperationException("Not used")
-    protected open fun latestUpdatesNextPageSelector(): String? = throw UnsupportedOperationException("Not used")
+    /**
+     * Returns the Jsoup selector that returns a list of [Element] corresponding to each manga.
+     */
+    protected abstract fun searchMangaSelector(): String
 
+    /**
+     * Returns a manga from the given [element]. Most sites only show the title and the url, it's
+     * totally fine to fill only those two values.
+     *
+     * @param element an element obtained from [searchMangaSelector].
+     */
+    protected abstract fun searchMangaFromElement(element: Element): SManga
+
+    /**
+     * Returns the Jsoup selector that returns the <a> tag linking to the next page, or null if
+     * there's no next page.
+     */
+    protected abstract fun searchMangaNextPageSelector(): String?
+
+    /**
+     * Parses the response from the site and returns a [MangasPage] object.
+     *
+     * @param response the response from the site.
+     */
+    @Deprecated(
+        "The helper functions are inherently limiting and hides the underlying implementation. Source developers should make their own implementation according to their needs.",
+    )
     override fun latestUpdatesParse(response: Response): MangasPage {
         val document = response.asJsoup()
-        val mangas = document.select(latestUpdatesSelector()).map { latestUpdatesFromElement(it) }
-        val hasNext = latestUpdatesNextPageSelector()?.let { document.selectFirst(it) != null } ?: false
-        return MangasPage(mangas, hasNext)
+
+        val mangas = document.select(latestUpdatesSelector()).map { element ->
+            latestUpdatesFromElement(element)
+        }
+
+        val hasNextPage = latestUpdatesNextPageSelector()?.let { selector ->
+            document.select(selector).first()
+        } != null
+
+        return MangasPage(mangas, hasNextPage)
     }
 
+    /**
+     * Returns the Jsoup selector that returns a list of [Element] corresponding to each manga.
+     */
+    protected abstract fun latestUpdatesSelector(): String
+
+    /**
+     * Returns a manga from the given [element]. Most sites only show the title and the url, it's
+     * totally fine to fill only those two values.
+     *
+     * @param element an element obtained from [latestUpdatesSelector].
+     */
+    protected abstract fun latestUpdatesFromElement(element: Element): SManga
+
+    /**
+     * Returns the Jsoup selector that returns the <a> tag linking to the next page, or null if
+     * there's no next page.
+     */
+    protected abstract fun latestUpdatesNextPageSelector(): String?
+
+    /**
+     * Parses the response from the site and returns the details of a manga.
+     *
+     * @param response the response from the site.
+     */
+    @Deprecated(
+        "The helper functions are inherently limiting and hides the underlying implementation. Source developers should make their own implementation according to their needs.",
+    )
+    override fun mangaDetailsParse(response: Response): SManga {
+        return mangaDetailsParse(response.asJsoup())
+    }
+
+    /**
+     * Returns the details of the manga from the given [document].
+     *
+     * @param document the parsed document.
+     */
     protected abstract fun mangaDetailsParse(document: Document): SManga
-    override fun mangaDetailsParse(response: Response): SManga = mangaDetailsParse(response.asJsoup())
 
+    /**
+     * Parses the response from the site and returns a list of chapters.
+     *
+     * @param response the response from the site.
+     */
+    @Deprecated(
+        "The helper functions are inherently limiting and hides the underlying implementation. Source developers should make their own implementation according to their needs.",
+    )
+    override fun chapterListParse(response: Response): List<SChapter> {
+        val document = response.asJsoup()
+        return document.select(chapterListSelector()).map { chapterFromElement(it) }
+    }
+
+    /**
+     * Returns the Jsoup selector that returns a list of [Element] corresponding to each chapter.
+     */
     protected abstract fun chapterListSelector(): String
+
+    /**
+     * Returns a chapter from the given element.
+     *
+     * @param element an element obtained from [chapterListSelector].
+     */
     protected abstract fun chapterFromElement(element: Element): SChapter
-    override fun chapterListParse(response: Response): List<SChapter> =
-        response.asJsoup().select(chapterListSelector()).map { chapterFromElement(it) }
 
+    /**
+     * Parses the response from the site and returns the page list.
+     *
+     * @param response the response from the site.
+     */
+    @Deprecated(
+        "The helper functions are inherently limiting and hides the underlying implementation. Source developers should make their own implementation according to their needs.",
+    )
+    override fun pageListParse(response: Response): List<Page> {
+        return pageListParse(response.asJsoup())
+    }
+
+    /**
+     * Returns a page list from the given document.
+     *
+     * @param document the parsed document.
+     */
     protected abstract fun pageListParse(document: Document): List<Page>
-    override fun pageListParse(response: Response): List<Page> = pageListParse(response.asJsoup())
 
+    /**
+     * Parse the response from the site and returns the absolute url to the source image.
+     *
+     * @param response the response from the site.
+     */
+    @Deprecated(
+        "The helper functions are inherently limiting and hides the underlying implementation. Source developers should make their own implementation according to their needs.",
+    )
+    override fun imageUrlParse(response: Response): String {
+        return imageUrlParse(response.asJsoup())
+    }
+
+    /**
+     * Returns the absolute url to the source image from the document.
+     *
+     * @param document the parsed document.
+     */
     protected abstract fun imageUrlParse(document: Document): String
-    override fun imageUrlParse(response: Response): String = imageUrlParse(response.asJsoup())
 }
