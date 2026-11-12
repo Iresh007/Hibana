@@ -11,6 +11,7 @@ import com.opennovel.reader.source.SourceManager
 import com.opennovel.reader.tts.TtsManager
 import okhttp3.OkHttpClient
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import java.util.concurrent.TimeUnit
 
 /**
@@ -24,6 +25,7 @@ class AppContainer(context: Context) {
     val appContext: Context = context.applicationContext
 
     val httpClient: OkHttpClient = OkHttpClient.Builder()
+        .dns(eu.kanade.tachiyomi.network.HostNetworkSettings.dns)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
@@ -125,6 +127,15 @@ class AppContainer(context: Context) {
     val extensionManager = com.opennovel.reader.extension.ExtensionManager(extensionLoaders, sourceManager, context.applicationContext)
 
     init {
+        // Keep the live network preferences (User-Agent, DNS-over-HTTPS) in step with settings.
+        kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default)
+            .launch {
+                settingsRepository.settings.collect {
+                    eu.kanade.tachiyomi.network.HostNetworkSettings.userAgent = it.userAgent
+                    eu.kanade.tachiyomi.network.HostNetworkSettings.dohUrl = it.dnsOverHttps.url
+                }
+            }
+
         // Provide the host singletons that Tachiyomi/Manatan extensions resolve via
         // Injekt (NetworkHelper + app Context) before any extension is loaded.
         com.opennovel.reader.extension.ExtensionRuntime.init(context.applicationContext)

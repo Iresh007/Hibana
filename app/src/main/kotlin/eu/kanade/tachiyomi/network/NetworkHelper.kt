@@ -19,13 +19,16 @@ import java.util.concurrent.TimeUnit
  */
 class NetworkHelper(
     context: Context,
-    private val userAgent: () -> String = { DEFAULT_USER_AGENT },
+    private val userAgent: () -> String = {
+        HostNetworkSettings.userAgent.ifBlank { DEFAULT_USER_AGENT }
+    },
 ) {
 
     val cookieJar = AndroidCookieJar()
 
     val client: OkHttpClient = OkHttpClient.Builder()
         .cookieJar(cookieJar)
+        .dns(HostNetworkSettings.dns)
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .callTimeout(2, TimeUnit.MINUTES)
