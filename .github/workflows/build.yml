@@ -20,27 +20,27 @@ concurrency:
 jobs:
   build:
     name: Build & Test App
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '8.14.5'
 
       - name: Generate Gradle wrapper
-        run: gradle wrapper --gradle-version 8.11.1
+        run: gradle wrapper --gradle-version 8.14.5
 
       - name: Build debug APK
         run: gradle :app:assembleDebug --stacktrace
@@ -56,7 +56,7 @@ jobs:
         run: gradle :app:lintDebug --stacktrace
 
       - name: Upload debug APK
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: app-debug
           path: app/build/outputs/apk/debug/*.apk
@@ -64,7 +64,7 @@ jobs:
 
       - name: Upload reports
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: build-reports
           path: |

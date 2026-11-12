@@ -16,28 +16,28 @@ concurrency:
 jobs:
   emulator-test:
     name: Build APK and run on emulator
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v5
+        uses: gradle/actions/setup-gradle@v6
         with:
-          gradle-version: '8.11.1'
+          gradle-version: '8.14.5'
 
       - name: Generate Gradle wrapper
-        run: gradle wrapper --gradle-version 8.11.1
+        run: gradle wrapper --gradle-version 8.14.5
 
       # The release build ships ARM only; the cloud emulator is x86_64, so this
       # run adds that ABI (-PincludeX86=true) to keep ML Kit's native libs loadable.
@@ -65,7 +65,7 @@ jobs:
 
       - name: Upload emulator logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: emulator-logs
           path: |
