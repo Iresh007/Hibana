@@ -14,6 +14,7 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -94,10 +95,15 @@ fun OpenNovelTheme(
     }
     // Black/sepia reading modes keep their own palette; named themes only recolour
     // the standard light/dark schemes so OLED black stays black.
-    val colorScheme = if (themeMode == ThemeMode.BLACK || themeMode == ThemeMode.SEPIA) {
-        baseScheme
-    } else {
-        baseScheme.withAppTheme(appTheme, useDark)
+    val isDynamic = (dynamicColor || appTheme == AppTheme.MONET) &&
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+        themeMode != ThemeMode.BLACK && themeMode != ThemeMode.SEPIA
+    val colorScheme = when {
+        themeMode == ThemeMode.BLACK || themeMode == ThemeMode.SEPIA ->
+            baseScheme.withTonalSurfaces(dark = themeMode == ThemeMode.BLACK)
+        // Wallpaper colours already ship a complete tonal set.
+        isDynamic -> baseScheme
+        else -> baseScheme.withAppTheme(appTheme, useDark).withTonalSurfaces(useDark)
     }
 
     val view = LocalView.current
@@ -150,5 +156,33 @@ private fun ColorScheme.accents(
         secondary = s, onSecondary = on(s),
         tertiary = t, onTertiary = on(t),
         primaryContainer = p.copy(alpha = 1f).let { if (dark) it.copy(red = it.red * .3f, green = it.green * .3f, blue = it.blue * .3f) else it.copy(red = 1f - (1f - it.red) * .25f, green = 1f - (1f - it.green) * .25f, blue = 1f - (1f - it.blue) * .25f) },
+    )
+}
+
+/**
+ * Fills in the Material 3 tonal tokens (surface containers, secondary container,
+ * outlines) from the scheme's own surface/accent colours. Without this, components
+ * such as the navigation bar, chips and cards fall back to M3's stock purple-grey
+ * defaults, which clash with the amber/navy brand and read as "wrong colours".
+ */
+private fun ColorScheme.withTonalSurfaces(dark: Boolean): ColorScheme {
+    val toward = if (dark) Color.White else Color.Black
+    fun surf(amount: Float) = lerp(surface, toward, amount)
+    return copy(
+        surfaceContainerLowest = lerp(background, if (dark) Color.Black else Color.White, 0.5f),
+        surfaceContainerLow = surf(if (dark) 0.03f else 0.015f),
+        surfaceContainer = surf(if (dark) 0.06f else 0.03f),
+        surfaceContainerHigh = surf(if (dark) 0.09f else 0.05f),
+        surfaceContainerHighest = surf(if (dark) 0.12f else 0.07f),
+        surfaceDim = lerp(background, Color.Black, if (dark) 0.2f else 0.06f),
+        surfaceBright = surf(if (dark) 0.14f else 0f),
+        // The selected-tab pill and filled chips: a clear tint of the accent.
+        secondaryContainer = lerp(surface, secondary, if (dark) 0.30f else 0.22f),
+        onSecondaryContainer = onSurface,
+        tertiaryContainer = lerp(surface, tertiary, if (dark) 0.30f else 0.22f),
+        onTertiaryContainer = onSurface,
+        onSurfaceVariant = lerp(surface, onSurface, 0.78f),
+        outline = lerp(surface, onSurface, 0.55f),
+        outlineVariant = lerp(surface, onSurface, 0.22f),
     )
 }
