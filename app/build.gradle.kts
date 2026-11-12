@@ -40,6 +40,8 @@ android {
         // Supporting IReader extensions costs Android 7.x (API 24-25) support.
         minSdk = 26
         targetSdk = 34
+        // ML Kit OCR/translate ship ~28 MB of native code per ABI; x86 is emulator-only.
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
         versionCode = 1
         // The release workflow passes -PversionName=<tag without v>, so the
         // installed app reports exactly what was shipped. Falls back to the

@@ -17,7 +17,14 @@ import kotlinx.coroutines.launch
  * that ViewModels and services can reach the database, repositories, downloader,
  * and the source/extension manager without a DI framework.
  */
-class NovelReaderApp : Application() {
+class NovelReaderApp : Application(), coil.ImageLoaderFactory {
+
+    /** Page images go through the owning source's client and headers (Referer etc.). */
+    override fun newImageLoader(): coil.ImageLoader = coil.ImageLoader.Builder(this)
+        .callFactory { com.opennovel.reader.source.SourceImages.factory(container.httpClient) }
+        .crossfade(true)
+        .build()
+
 
     lateinit var container: AppContainer
         private set

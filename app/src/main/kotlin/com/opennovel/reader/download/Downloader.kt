@@ -171,19 +171,67 @@ class Downloader(
         )
         setState(chapterId, DownloadState.RUNNING)
         runCatching {
-            val text = source.getChapterText(chapter.url)
-            // A configured folder wins; without one this stays exactly where
-            // downloads have always gone, so nothing already stored is orphaned.
-            val location = storage.writeChapter(novel.id, chapterId, text.plain)
-                ?: File(root, novel.id.toString())
-                    .apply { mkdirs() }
-                    .let { dir -> File(dir, "$chapterId.txt") }
-                    .also { it.writeText(text.plain, Charsets.UTF_8) }
-                    .absolutePath
+            val location = if (source is com.opennovel.reader.source.ImageChapterSource) {
+                downloadPages(source, novel.id, chapter.id, chapter.url)
+            } else {
+                val text = source.getChapterText(chapter.url)
+                // A configured folder wins; without one this stays exactly where
+                // downloads have always gone, so nothing already stored is orphaned.
+                storage.writeChapter(novel.id, chapterId, text.plain)
+                    ?: File(root, novel.id.toString())
+                        .apply { mkdirs() }
+                        .let { dir -> File(dir, "$chapterId.txt") }
+                        .also { it.writeText(text.plain, Charsets.UTF_8) }
+                        .absolutePath
+            }
             chapterDao.setDownloadState(chapterId, downloaded = true, path = location)
             setState(chapterId, DownloadState.DONE)
             location
         }.onFailure { setState(chapterId, DownloadState.FAILED) }
+    }
+
+    /**
+     * Saves every page of an image chapter into `<root>/<novel>/<chapter>/NNNN.img`
+     * (app-private storage) and returns the directory. Pages go to a temp folder
+     * first and are renamed into place only when all of them arrived, so a
+     * failed download never leaves a half chapter marked as downloaded.
+     */
+    private suspend fun downloadPages(
+        source: com.opennovel.reader.source.ImageChapterSource,
+        novelId: Long,
+        chapterId: Long,
+        chapterUrl: String,
+    ): String {
+        val finalDir = File(root, "$novelId/$chapterId")
+        val tmpDir = File(root, "$novelId/$chapterId.part").apply { deleteRecursively(); mkdirs() }
+        try {
+            val pages = source.getPages(chapterUrl)
+            require(pages.isNotEmpty()) { "Source returned no pages" }
+            pages.forEachIndexed { i, page ->
+                val resolved = if (page.imageUrl != null) page else page.copy(imageUrl = source.resolveImageUrl(page))
+                val target = File(tmpDir, "%04d.img".format(i))
+                val response = source.openImage(resolved)
+                    ?: com.opennovel.reader.source.SourceImages.factory(
+                        source.imageClient ?: okhttp3.OkHttpClient(),
+                    ).newCall(
+                        okhttp3.Request.Builder()
+                            .url(resolved.imageUrl ?: resolved.url)
+                            .apply { source.imageHeaders?.let { headers(it) } }
+                            .build(),
+                    ).execute()
+                response.use { r ->
+                    check(r.isSuccessful) { "Page ${i + 1} failed: HTTP ${r.code}" }
+                    val body = checkNotNull(r.body) { "Page ${i + 1} had no body" }
+                    target.outputStream().use { out -> body.byteStream().use { it.copyTo(out) } }
+                }
+            }
+            finalDir.deleteRecursively()
+            check(tmpDir.renameTo(finalDir)) { "Could not finalise downloaded chapter" }
+            return finalDir.absolutePath
+        } catch (t: Throwable) {
+            tmpDir.deleteRecursively()
+            throw t
+        }
     }
 
     /** Reads a stored chapter back, whichever storage model wrote it. */
@@ -191,7 +239,10 @@ class Downloader(
 
     suspend fun delete(chapterId: Long) = withContext(Dispatchers.IO) {
         val chapter = chapterDao.getById(chapterId) ?: return@withContext
-        chapter.downloadPath?.let { storage.delete(it) }
+        chapter.downloadPath?.let { path ->
+            val f = File(path)
+            if (f.isDirectory) f.deleteRecursively() else storage.delete(path)
+        }
         chapterDao.setDownloadState(chapterId, downloaded = false, path = null)
         setState(chapterId, DownloadState.NONE)
     }

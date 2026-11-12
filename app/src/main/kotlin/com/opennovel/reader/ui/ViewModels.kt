@@ -27,6 +27,7 @@ import com.opennovel.reader.tts.OcrScript
 import com.opennovel.reader.tts.TtsManager
 import com.opennovel.reader.tts.TtsState
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -1535,7 +1536,21 @@ class ReaderViewModel(
             // chapter that fits on one screen, or one the user backed out of,
             // never reached History at all.
             repo.recordHistory(chapter.novelId, chapter.id)
-            val text = if (chapter.downloaded && chapter.downloadPath != null) {
+            val localDir = chapter.downloadPath
+                ?.takeIf { chapter.downloaded }
+                ?.let(::File)
+                ?.takeIf { it.isDirectory }
+            if (localDir != null) {
+                // Downloaded comic chapter: show the saved page files, no network.
+                val files = localDir.listFiles()?.filter { it.isFile }?.sortedBy { it.name }.orEmpty()
+                if (files.isNotEmpty()) {
+                    _content.value = null
+                    _pageUrls.value = files.map { it.toURI().toString() }
+                    _loading.value = false
+                    return@launch
+                }
+            }
+            val text = if (chapter.downloaded && chapter.downloadPath != null && localDir == null) {
                 downloader.readLocal(chapter.downloadPath)?.let { ChapterText(it.split("\n\n")) }
             } else {
                 repo.fetchChapterText(chapter)
